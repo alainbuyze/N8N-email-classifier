@@ -1,0 +1,943 @@
+{
+  "name": "Outlook categorizer",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "bd947a43-2ade-4d5c-b77d-2d2bc36f84f2",
+      "name": "When clicking ‘Test workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -832,
+        1104
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a31ee422-4701-4c03-8227-f4f14b8bceed",
+      "name": "Loop Over Items1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        -112,
+        1120
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "html": "={{ $('Loop Over Items1').item.json.body.content }}",
+        "options": {}
+      },
+      "id": "917a9acb-48d3-45b3-99e3-0c1ac55e8b02",
+      "name": "Markdown1",
+      "type": "n8n-nodes-base.markdown",
+      "position": [
+        160,
+        1136
+      ],
+      "notesInFlow": true,
+      "typeVersion": 1,
+      "notes": "Converts the body of the email to markdown"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c8cd6917-f94e-4fb7-8601-b8ed8f1aa8bf",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "leftValue": "={{ $json.flag.flagStatus }}",
+              "rightValue": "Flagged"
+            },
+            {
+              "id": "6271d7e4-43e5-47b5-814b-bf04365780be",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "949e3ddd-3828-47e8-a3c4-8c7f51e23465",
+      "name": "Filter1",
+      "type": "n8n-nodes-base.filter",
+      "position": [
+        -368,
+        1120
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0dc6d439-60fb-49f6-b4d5-f5cce6f030ad",
+              "name": "error",
+              "type": "string",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "55cd344c-1a90-4138-b712-43236926d6e4",
+      "name": "Catch Errors1",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1232,
+        1280
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "content": "## Outlook Business with filters\nFilters:\n```\nflag/flagStatus eq 'notFlagged' and not categories/any()\n```\n\nThese filters ensure we do not process flagged emails or email that already have a category set.",
+        "height": 401.49417117683515,
+        "width": 411.91693012378937
+      },
+      "id": "258dad96-6e3d-4e19-a7e2-59ce4074a4f9",
+      "name": "Sticky Note10",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -624,
+        896
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Sanitise Email \nRemoves HTML and useless information in preparation for the AI Agent",
+        "height": 301.40952380952365,
+        "width": 418.7820408163265,
+        "color": 6
+      },
+      "id": "9ab2f2fe-4b03-41cf-9cda-88523d07d3b7",
+      "name": "Sticky Note11",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        96,
+        1024
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Convert to JSON\n* Ensures the Agent output to converted to JSON\n* Catches any errors and continues processing",
+        "height": 463.0204081632651,
+        "width": 441.003537414966,
+        "color": 5
+      },
+      "id": "4aa246b9-e29b-4583-94b3-a60dd02c1fbc",
+      "name": "Sticky Note13",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        944,
+        992
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Categorise the following email\n<email>\n{{ $('myEmail').first().json.toJsonString() }}\n</email>\n\nEnsure your final output is valid JSON with no additional text or token in the following format:\n\n{\n\"ID\":  \"id\"\n\"subject\": \"SUBJECT_LINE\",1\n  \"category\": \"CATEGORY\",\n  \"subCategory\": \"SUBCATEGORY\", //use sparingly\n  \"analysis\": \"ANALYSIS_REASONING\"\n}\n\nRemember you can only use ONE of the following categories {{ $json.category }}. No other categories can be used. Use the subcategory for additional context, for example, if a SaaS email requires action, or if a business email requires action. Do not create any additional subcategories, you can only use ONE of the following {{ $json.category }}.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You're an AI assistant for a business manager, categorizing emails as {{ $json.category }}. Email info is in <email> tags.\n\nCategorization priority:\n\nAction: Needs response or action from a personal email address\nResponse: an e-mail that is a response to a personal e-mail from me\nJunk: Ads, sales, newsletters, promotions, daily digests, Exclusieve aanbieding. Oftern the repy email address is noreply@...\nSpam: (emojis often indicate junk), phishing, scams, discounts etc. Including all mails from Zendesk, Often urging you to take an action, impersonal address, originating from an email address that has no link with the apparent content originator\nReceipt: Any purchase confirmation.\nBoss: a message from my boss (Jan Verlinden), addressed to me personally\nCompany: a message from the company (@mycompany.com)\nCollaborators: a message from my team\nCommunity: Updates, events, forums, everything related to \"community\".\nBusiness: Any communication related to business, usually from usually from a non-personal email address\nOther: Doesn't fit into any other category.\n\nKey points:\n\nAnalyze the subject, body, email addresses and other data.\nLook for specific keywords and phrases for each category.\nEmail can have 2 categories, primary and sub, for example, \"action\" and \"Boss\" or \"action\" and \"Business\".\nEmails from business development executives are often junk.\n\n\nOutput in valid JSON format:\n{\n\"subject\": \"SUBJECT_LINE\",\n\"category\": \"PRIMARY CATEGORY\",\n\"subCategory\": \"SUBCATEGORY\", //use sparingly\n\"analysis\": \"Brief 1-2 sentence explanation of category choice\"\n}\nNo additional text or tokens outside the JSON.\n\nYou may only use the following categories and subcategories, do not create any more categories or subcategories: {{ $json.category }}"
+        }
+      },
+      "id": "d823f66a-ba9d-4686-a09c-9762fc260549",
+      "name": "AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        608,
+        1136
+      ],
+      "typeVersion": 1.6,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        608,
+        1328
+      ],
+      "id": "798e87c3-aa1c-4891-bab0-3311fa2ee97f",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "R9YZrcrLBd6N7MAI",
+          "name": "Groq account"
+        }
+      },
+      "notes": "gsk_yj1MDNIuXFoW4Sa0T6LpWGdyb3FYuUXWDhdMjO2KSwCkOZrx7NW"
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = $input.all()[0].json;\n\n// Handle nested body structure\nlet body = '';\nif (typeof emailData.body === 'string') {\n  body = emailData.body;\n} else if (emailData.body && typeof emailData.body === 'object' && emailData.body.content) {\n  body = emailData.body.content;\n} else if (emailData.content) {\n  body = emailData.content;\n} else if (typeof emailData === 'object') {\n  // Try to find content in the object\n  body = JSON.stringify(emailData);\n}\n\n// Ensure body is a string\nbody = String(body);\n\nconsole.log('Content type:', emailData.contentType);\nconsole.log('Body type:', typeof body);\nconsole.log('Body length:', body.length);\nconsole.log('Body preview:', body.substring(0, 100));\n\n// Extract all href URLs from HTML\nconst trackingUrls = [];\nconst hrefRegex = /href=[\"']([^\"']+)[\"']/g;\n\nlet match;\nwhile ((match = hrefRegex.exec(body)) !== null) {\n  const url = match[1];\n  \n  // Only keep Cloudflare tracking links\n  if (url.includes('links') && url.includes('cloudflare.com')) {\n    console.log(`Found tracking URL: ${url.substring(0, 100)}...`);\n    if (!trackingUrls.includes(url)) {\n      trackingUrls.push(url);\n    }\n  }\n}\n\nconsole.log(`Total tracking URLs found: ${trackingUrls.length}`);\n\n// Follow redirects to get final URLs\nconst finalUrls = [];\n\nconst followRedirects = async () => {\n  for (const trackingUrl of trackingUrls) {\n    try {\n      console.log(`Following redirect for tracking URL...`);\n      \n      const response = await fetch(trackingUrl, {\n        method: 'GET',\n        redirect: 'follow'\n      });\n      \n      const finalUrl = response.url;\n      console.log(`Final URL: ${finalUrl}`);\n      \n      if (!finalUrls.includes(finalUrl)) {\n        finalUrls.push(finalUrl);\n      }\n    } catch (error) {\n      console.log(`Error following redirect: ${error.message}`);\n      // If redirect fails, keep the original tracking URL\n      finalUrls.push(trackingUrl);\n    }\n  }\n};\n\nawait followRedirects();\n\n// Extract plain text from HTML (remove all HTML tags)\nconst cleanBody = body\n  .replace(/<style[^>]*>.*?<\\/style>/gi, '') // Remove style tags\n  .replace(/<script[^>]*>.*?<\\/script>/gi, '') // Remove script tags\n  .replace(/<[^>]+>/g, '') // Remove all HTML tags\n  .replace(/&nbsp;/g, ' ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&#(\\d+);/g, (match, dec) => String.fromCharCode(dec)) // Decode HTML entities\n  .replace(/\\s+/g, ' ') // Normalize whitespace\n  .trim();\n\nconsole.log('Clean body preview:', cleanBody.substring(0, 200));\n\n// Extract sender email address\nlet senderEmail = '';\nif (typeof emailData.sender === 'string') {\n  senderEmail = emailData.sender;\n} else if (emailData.sender?.emailAddress?.address) {\n  senderEmail = emailData.sender.emailAddress.address;\n} else if (emailData.sender?.address) {\n  senderEmail = emailData.sender.address;\n}\n\nreturn {\n  subject: emailData.subject,\n  sender: senderEmail,\n  contentType: emailData.contentType,\n  cleanBody: cleanBody,\n  trackingUrlsCount: trackingUrls.length,\n  finalUrls: finalUrls,\n  hyperlinkCount: finalUrls.length\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        448
+      ],
+      "id": "4db8c7b2-cc6d-4e38-80b7-f519726215a9",
+      "name": "Code in JavaScript",
+      "alwaysOutputData": true,
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {},
+        "options": {
+          "includeChildFolders": true
+        }
+      },
+      "id": "8cd81143-7f1a-4ba9-9b83-4fc20a24f36d",
+      "name": "Outlook Folders",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "position": [
+        1376,
+        672
+      ],
+      "typeVersion": 2,
+      "webhookId": "cd0f29ac-4a53-465f-8bd8-0ace24b45226",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 5,
+        "output": "fields",
+        "fields": [
+          "flag",
+          "from",
+          "importance",
+          "replyTo",
+          "sender",
+          "subject",
+          "toRecipients",
+          "body",
+          "categories",
+          "isRead"
+        ],
+        "filtersUI": {
+          "values": {
+            "filters": {
+              "foldersToInclude": [
+                "AQMkADAwATZiZmYAZC04MDVmLWM2OTAtMDACLTAwCgAuAAADUjHfGU1HJ0_KBQ8O2g2iAwEA6gO1sJcIPUKwIqTgchhWpAAAAgEMAAAA"
+              ]
+            }
+          }
+        },
+        "options": {}
+      },
+      "id": "bccfcd5d-37a3-4dff-8adf-0dc0224be41a",
+      "name": "Get Outlook Messages",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "position": [
+        -560,
+        1120
+      ],
+      "typeVersion": 2,
+      "webhookId": "cd0f29ac-4a53-465f-8bd8-0ace24b45226",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "displayName": "={{ $json.output.category }}",
+        "options": {
+          "folderId": {
+            "__rl": true,
+            "value": "=",
+            "mode": "id"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        672
+      ],
+      "id": "1131eea9-d52f-4884-8d88-3927a7622597",
+      "name": "Create a folder",
+      "webhookId": "b707961e-e6c9-4828-b15d-b0279340b100",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "messageId": {
+          "__rl": true,
+          "value": "={{ $json.ID }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.categoryFolderId }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        1008
+      ],
+      "id": "e35b917b-adb5-4f85-8bcb-c7ef0d50a5aa",
+      "name": "Move a message",
+      "webhookId": "5141ea52-ed08-4793-8562-4e789b2d2f15",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "edb304e1-3e9f-4a77-918c-25646addbc53",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "id": "57a3ef3a-2701-40d9-882f-f43a7219f148",
+              "name": "importance",
+              "type": "string",
+              "value": "={{ $json.importance }}"
+            },
+            {
+              "id": "d8317f4f-aa0e-4196-89af-cb016765490a",
+              "name": "sender",
+              "type": "object",
+              "value": "={{ $json.sender.emailAddress }}"
+            },
+            {
+              "id": "908716c8-9ff7-4bdc-a1a3-64227559635e",
+              "name": "from",
+              "type": "object",
+              "value": "={{ $json.from.emailAddress }}"
+            },
+            {
+              "id": "ce007329-e221-4c5a-8130-2f8e9130160f",
+              "name": "body",
+              "type": "string",
+              "value": "={{ $json.data\n    .replace(/<[^>]*>/g, '')                      // Remove HTML tags\n    .replace(/\\[(.*?)\\]\\((.*?)\\)/g, '')            // Remove Markdown links like [text](link)\n    .replace(/!\\[.*?\\]\\(.*?\\)/g, '')               // Remove Markdown images like ![alt](image-link)\n    .replace(/\\|/g, '')                            // Remove table separators \"|\"\n    .replace(/-{3,}/g, '')                         // Remove horizontal rule \"---\"\n    .replace(/\\n+/g, ' ')                          // Remove multiple newlines\n    .replace(/([^\\w\\s.,!?@])/g, '')                // Remove special characters except essential ones\n    .replace(/\\s{2,}/g, ' ')                       // Replace multiple spaces with a single space\n    .trim()                                        // Trim leading/trailing whitespace\n}}\n"
+            },
+            {
+              "id": "fb9d4c64-011d-4d5c-aac1-63b2c1ce900d",
+              "name": "id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3f499601-a9ba-4555-97ac-71f57ef3aa5f",
+      "name": "myEmail",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        352,
+        1136
+      ],
+      "typeVersion": 3.4,
+      "notes": "Set email fields"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "displayName": "={{ $json.output.subCategory }}",
+        "options": {
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.id }}",
+            "mode": "id"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        768
+      ],
+      "id": "fb747c67-5bfc-4ed9-97f1-6550314430db",
+      "name": "Create a subfolder",
+      "webhookId": "b707961e-e6c9-4828-b15d-b0279340b100",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "filter": ""
+        },
+        "options": {
+          "includeChildFolders": true
+        }
+      },
+      "id": "639aa866-2493-4b65-b8ed-f1c2828bae46",
+      "name": "Refresh Outlook Folders",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "position": [
+        1872,
+        768
+      ],
+      "typeVersion": 2,
+      "webhookId": "cd0f29ac-4a53-465f-8bd8-0ace24b45226",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "displayName",
+              "field2": "output.category"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1584,
+        768
+      ],
+      "id": "7f731510-5cb0-4df6-83bd-6ddcdfbf11b1",
+      "name": "Get FolderID"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all folders from input\nconst folders = $input.all().map(item => item.json);\n\n// Create a lookup map: id -> displayName\nconst folderMap = {};\nfolders.forEach(folder => {\n  folderMap[folder.id] = folder.displayName;\n});\n\n// Fields to exclude\nconst excludeFields = ['childFolderCount', 'unreadItemCount', 'totalItemCount', 'sizeInBytes', 'isHidden'];\n\n// Enrich each folder with parent displayName and remove unwanted fields\nconst enrichedFolders = folders.map(folder => {\n  // Create new object without excluded fields\n  const filtered = Object.keys(folder)\n    .filter(key => !excludeFields.includes(key))\n    .reduce((obj, key) => {\n      obj[key] = folder[key];\n      return obj;\n    }, {});\n  \n  // Add parent folder name\n  filtered.parentFolderName = folder.parentFolderId ? folderMap[folder.parentFolderId] : null;\n  \n  return filtered;\n});\n\n// Return enriched data\nreturn enrichedFolders.map(folder => ({ json: folder }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        768
+      ],
+      "id": "02b0e0cb-3a77-440a-9d3d-4864f793613e",
+      "name": "Enrich subfolders with parent folder name"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1808,
+        1104
+      ],
+      "id": "10dee4d8-3aba-4efe-9c86-dc2436b95a8b",
+      "name": "Wait Folder Creation"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "messageId": {
+          "__rl": true,
+          "value": "={{ $json.output.ID }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.output.subcategory }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        1184
+      ],
+      "id": "650b2651-5d48-4210-9951-41e3e2279ca8",
+      "name": "Move a message1",
+      "webhookId": "5141ea52-ed08-4793-8562-4e789b2d2f15",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "vFuCaoJ7fhoqcDj7",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "24b06406-d783-41df-baaf-e924d66cd13b",
+              "leftValue": "={{ $json.subCategory }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        1024
+      ],
+      "id": "ae87d910-a8d8-4663-8732-89d2ddc18941",
+      "name": "If no subcat"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0c52f57f-74eb-4385-ac6b-f3e5f4f50e73",
+              "name": "output",
+              "type": "object",
+              "value": "={{ $json.output.replace(/^.*?({.*}).*$/s, '$1') }}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreConversionErrors": true
+        }
+      },
+      "id": "99b86529-219b-4758-ad31-a4ab80d5bfae",
+      "name": "EmailEvaluated",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1008,
+        1136
+      ],
+      "typeVersion": 3.4,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "useDataOfInput": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2336,
+        1184
+      ],
+      "id": "9106f35a-88ab-444f-9c3a-2dc968d9abee",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all inputs\nconst allInputs = $input.all();\n\n// Find the categorization data (the one with 'output' field)\nconst categorizationItem = allInputs.find(item => item.json.output);\nconst categorizationData = categorizationItem ? categorizationItem.json.output : null;\n\n// Get folders (all items without 'output' field)\nconst folders = allInputs.filter(item => !item.json.output).map(item => item.json);\n\n// Safety check\nif (!categorizationData) {\n  throw new Error('No categorization data found with \"output\" field');\n}\n\n// Create lookup maps: displayName -> folder object (case-insensitive)\nconst folderMap = {};\nfolders.forEach(folder => {\n  folderMap[folder.displayName.toLowerCase()] = folder;\n});\n\n// Find category folder\nconst categoryFolder = folderMap[categorizationData.category.toLowerCase()];\n\n// Find subcategory folder (if exists)\nlet subcategoryFolder = null;\nif (categorizationData.subCategory) {\n  subcategoryFolder = folderMap[categorizationData.subCategory.toLowerCase()];\n}\n\n// Build enriched output\nconst enrichedOutput = {\n  ...categorizationData,\n  categoryFolderId: categoryFolder ? categoryFolder.id : null,\n  categoryFolderName: categorizationData.category,\n  subcategoryFolderId: subcategoryFolder ? subcategoryFolder.id : null,\n  subcategoryFolderName: categorizationData.subCategory || null\n};\n\nreturn { json: enrichedOutput };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        1104
+      ],
+      "id": "734d6fdb-668a-4588-bb5f-1a2adcadff1e",
+      "name": "Enrich email with FolderIDs"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2912,
+        1456
+      ],
+      "id": "f90dc9e6-599b-4f15-80b5-daba916d6ee5",
+      "name": "Aggregate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Filter1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "EmailEvaluated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown1": {
+      "main": [
+        [
+          {
+            "node": "myEmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Catch Errors1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Markdown1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Outlook Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Outlook Messages": {
+      "main": [
+        [
+          {
+            "node": "Filter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook Folders": {
+      "main": [
+        [
+          {
+            "node": "Get FolderID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a folder": {
+      "main": [
+        [
+          {
+            "node": "Outlook Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "myEmail": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a subfolder": {
+      "main": [
+        [
+          {
+            "node": "Refresh Outlook Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get FolderID": {
+      "main": [
+        [
+          {
+            "node": "Create a subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Outlook Folders": {
+      "main": [
+        [
+          {
+            "node": "Enrich subfolders with parent folder name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich subfolders with parent folder name": {
+      "main": [
+        [
+          {
+            "node": "Wait Folder Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Folder Creation": {
+      "main": [
+        [
+          {
+            "node": "Enrich email with FolderIDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If no subcat": {
+      "main": [
+        [
+          {
+            "node": "Move a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EmailEvaluated": {
+      "main": [
+        [
+          {
+            "node": "Create a folder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get FolderID",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Wait Folder Creation",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Catch Errors1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Move a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich email with FolderIDs": {
+      "main": [
+        [
+          {
+            "node": "If no subcat",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Move a message": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move a message1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "timezone": "Europe/Brussels",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 900,
+    "availableInMCP": false
+  },
+  "versionId": "823c7070-7c42-4fbc-892d-4728b90c109a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "24c98e24f99fa01a6e2c4b44506f3875dc483664e38f93b56a5a542f3c287765"
+  },
+  "id": "MjTXeIQNsy7p15C1",
+  "tags": []
+}

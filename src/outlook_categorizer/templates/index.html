@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Outlook Email Categorizer</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; }
+      .container { max-width: 900px; margin: 0 auto; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+      label { display: block; margin-top: 12px; font-weight: 600; }
+      input[type="text"], input[type="number"] { width: 100%; padding: 8px; margin-top: 6px; }
+      .row { display: flex; gap: 16px; }
+      .row > div { flex: 1; }
+      .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+      button { padding: 10px 14px; border: 0; border-radius: 6px; background: #111827; color: white; cursor: pointer; }
+      .hint { color: #6b7280; font-size: 0.9rem; margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Outlook Email Categorizer</h1>
+      <div class="card">
+        <form method="post" action="/run">
+          <div class="row">
+            <div>
+              <label for="limit">Limit</label>
+              <input id="limit" name="limit" type="number" min="1" placeholder="Leave empty for default" />
+            </div>
+            <div>
+              <label for="folder_label">Folder label</label>
+              <input id="folder_label" name="folder_label" type="text" placeholder="e.g. Inbox or Inbox/Boss or Ongewenste e-mail" />
+              <div class="hint">Leave empty to process Inbox (default).</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin:0;">
+              <input name="dry_run" type="checkbox" value="true" />
+              Dry run (do not move emails)
+            </label>
+            <button type="submit">Run</button>
+          </div>
+        </form>
+      </div>
+
+      <p class="hint" style="margin-top: 16px;">
+        API: POST /api/run with JSON {"limit": 5, "folder_label": "Inbox/Boss", "dry_run": true}
+      </p>
+    </div>
+  </body>
+</html>
