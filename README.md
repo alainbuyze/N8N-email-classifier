@@ -10,12 +10,124 @@ A Python module that automatically categorizes and organizes Microsoft Outlook e
 - **Configurable Categories**: Action, Response, Junk, Spam, Receipt, Boss, Company, Collaborators, Community, Business, Other
 - **Subcategory Support**: Organize emails into nested folders
 - **Dry Run Mode**: Test categorization without moving emails
+- **Web UI**: Simple web interface for running categorization
+- **Docker Support**: Containerized deployment for local and cloud
+- **Azure Deployment**: Automated CI/CD with secure secret management
+
+## Architecture Overview
+
+### System Design
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         User Interface                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
+│  │   CLI Tool   │  │   Web UI     │  │   Python API         │ │
+│  │  (cli.py)    │  │  (webapp.py) │  │  (orchestrator.py)   │ │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘ │
+└─────────┼──────────────────┼──────────────────────┼─────────────┘
+          │                  │                      │
+          └──────────────────┴──────────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Orchestrator   │  ← Coordinates workflow
+                    │ (orchestrator)  │
+                    └────────┬────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+    ┌─────▼──────┐   ┌──────▼──────┐   ┌──────▼──────┐
+    │   Email    │   │     AI      │   │   Folder    │
+    │   Client   │   │ Categorizer │   │   Manager   │
+    │  (Graph    │   │   (Groq     │   │  (Outlook   │
+    │   API)     │   │    LLM)     │   │  Folders)   │
+    └─────┬──────┘   └──────┬──────┘   └──────┬──────┘
+          │                  │                  │
+          └──────────────────┴──────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Microsoft      │
+                    │  Graph API      │
+                    │  (Outlook)      │
+                    └─────────────────┘
+```
+
+### Component Responsibilities
+
+1. **Orchestrator** (`orchestrator.py`)
+   - Coordinates the entire email processing workflow
+   - Fetches emails from Microsoft Graph API
+   - Manages batch processing
+   - Handles error recovery and logging
+
+2. **Email Client** (`email_client.py`)
+   - Interfaces with Microsoft Graph API
+   - Fetches emails with filters (skip already categorized)
+   - Moves emails to target folders
+   - URL-encodes IDs and handles 404 fallbacks
+
+3. **AI Categorizer** (`categorizer.py`)
+   - Analyzes email content using Groq LLM
+   - Applies smart heuristics (boss, company, receipts)
+   - Returns category and subcategory
+   - Handles JSON parsing and validation
+
+4. **Folder Manager** (`folder_manager.py`)
+   - Resolves folder labels to folder IDs
+   - Creates category folders on-demand
+   - Manages folder hierarchy
+   - Caches folder structure for performance
+
+5. **Authenticator** (`auth.py`)
+   - Handles Microsoft Graph authentication
+   - Uses device code flow for personal accounts
+   - Manages token caching and refresh
+
+6. **Sanitizer** (`sanitizer.py`)
+   - Cleans HTML email content
+   - Extracts plain text
+   - Truncates to token limits
+
+### Data Flow
+
+```
+1. User triggers categorization (CLI/Web/API)
+   ↓
+2. Orchestrator fetches uncategorized emails from Inbox
+   ↓
+3. For each email:
+   a. Sanitize content (remove HTML, truncate)
+   b. Apply heuristics (boss, company, receipts)
+   c. If no heuristic match → Call Groq LLM
+   d. Parse category and subcategory
+   e. Resolve/create target folder
+   f. Move email to folder
+   g. Log result
+   ↓
+4. Return summary (success/failure counts)
+```
+
+## Deployment Options
+
+### Local Development
+- **Docker Compose**: Full containerized stack with hot reload
+- **Python Virtual Environment**: Direct Python execution for development
+- See setup instructions below
+
+### Production (Azure)
+- **Azure Container Apps**: Serverless container hosting with scale-to-zero
+- **Azure Container Registry**: Private Docker image storage
+- **Azure Key Vault**: Secure secret management
+- **GitHub Actions**: Automated CI/CD pipeline
+- **Cost**: ~$5-8/month with scale-to-zero, ~$20-25/month always-on
+- See `DEPLOYMENT.md` and `azure-setup-template.md` for detailed setup
 
 ## Prerequisites
 
-1. **Python 3.10+**
-2. **Azure AD Application** with Mail.ReadWrite permissions
-3. **Groq API Key** from [console.groq.com](https://console.groq.com)
+1. **Python 3.10+** (for local development)
+2. **Docker & Docker Compose** (for containerized deployment)
+3. **Azure AD Application** with Mail.ReadWrite permissions
+4. **Groq API Key** from [console.groq.com](https://console.groq.com)
 
 ## Installation
 
