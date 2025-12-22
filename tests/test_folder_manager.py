@@ -33,24 +33,24 @@ class TestFolderManagerInitialization:
 
     def test_initialize_loads_folders(self, mock_email_client, sample_folders):
         """Test that initialize loads and caches folders."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
 
         assert manager._initialized is True
         assert len(manager._folder_cache) == 5
-        mock_email_client.get_folders.assert_called_once()
+        assert mock_email_client.get_folders.call_count == 2
 
     def test_refresh_reloads_folders(self, mock_email_client, sample_folders):
         """Test that refresh reloads folders."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders, sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
         manager.refresh()
 
-        assert mock_email_client.get_folders.call_count == 2
+        assert mock_email_client.get_folders.call_count == 4
 
 
 class TestFolderManagerLookup:
@@ -58,7 +58,7 @@ class TestFolderManagerLookup:
 
     def test_get_folder_by_name_case_insensitive(self, mock_email_client, sample_folders):
         """Test case-insensitive folder lookup by name."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -73,7 +73,7 @@ class TestFolderManagerLookup:
 
     def test_get_folder_by_name_not_found(self, mock_email_client, sample_folders):
         """Test folder lookup when folder doesn't exist."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -83,7 +83,7 @@ class TestFolderManagerLookup:
 
     def test_get_folder_by_id(self, mock_email_client, sample_folders):
         """Test folder lookup by ID."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -94,7 +94,7 @@ class TestFolderManagerLookup:
 
     def test_resolve_folder_label_single_name(self, mock_email_client, sample_folders):
         """Resolve a single folder label by name."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -103,13 +103,43 @@ class TestFolderManagerLookup:
         assert resolved is not None
         assert resolved.id == "folder-1"
 
+    def test_resolve_folder_label_single_name_prefers_root_when_duplicates_exist(
+        self, mock_email_client
+    ) -> None:
+        """Prefer the root folder when multiple folders share the same name."""
+
+        root_folders = [
+            Folder(id="root-business", displayName="Business", parentFolderId="root"),
+            Folder(id="folder-action", displayName="Action", parentFolderId="root"),
+        ]
+        folders = [
+            Folder(id="root-business", displayName="Business", parentFolderId="root"),
+            Folder(
+                id="nested-business",
+                displayName="Business",
+                parentFolderId="folder-action",
+            ),
+            Folder(id="folder-action", displayName="Action", parentFolderId="root"),
+        ]
+        mock_email_client.get_folders.side_effect = [root_folders, folders]
+
+        manager = FolderManager(mock_email_client)
+        manager.initialize()
+
+        resolved = manager.resolve_folder_label("Business")
+        assert resolved is not None
+        assert resolved.id == "root-business"
+
     def test_resolve_folder_label_path(self, mock_email_client):
         """Resolve a folder path like Inbox/Boss using child-folder scoping."""
+        root_folders = [
+            Folder(id="inbox", displayName="Inbox", parentFolderId="root"),
+        ]
         folders = [
-            Folder(id="inbox", displayName="Inbox", parentFolderId=None),
+            Folder(id="inbox", displayName="Inbox", parentFolderId="root"),
             Folder(id="boss", displayName="Boss", parentFolderId="inbox"),
         ]
-        mock_email_client.get_folders.return_value = folders
+        mock_email_client.get_folders.side_effect = [root_folders, folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -120,7 +150,7 @@ class TestFolderManagerLookup:
 
     def test_resolve_folder_label_not_found(self, mock_email_client, sample_folders):
         """Return None when a label cannot be resolved."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -134,7 +164,7 @@ class TestFolderManagerCreation:
 
     def test_ensure_category_folder_exists(self, mock_email_client, sample_folders):
         """Test ensuring existing category folder."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -146,7 +176,7 @@ class TestFolderManagerCreation:
 
     def test_ensure_category_folder_creates_new(self, mock_email_client, sample_folders):
         """Test creating new category folder."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
         new_folder = Folder(id="folder-new", displayName="Receipt", parentFolderId=None)
         mock_email_client.create_folder.return_value = new_folder
 
@@ -158,9 +188,38 @@ class TestFolderManagerCreation:
         assert folder.display_name == "Receipt"
         mock_email_client.create_folder.assert_called_once_with("Receipt")
 
+    def test_ensure_category_folder_handles_conflict_by_refreshing_and_resolving(
+        self, mock_email_client
+    ) -> None:
+        """Treat 409 conflict (create_folder returns None) as OK and resolve existing."""
+
+        initial_folders = [
+            Folder(id="folder-action", displayName="Action", parentFolderId=None),
+        ]
+        refreshed_folders = [
+            Folder(id="folder-action", displayName="Action", parentFolderId=None),
+            Folder(id="folder-subscriptions", displayName="Subscriptions", parentFolderId=None),
+        ]
+
+        mock_email_client.get_folders.side_effect = [
+            initial_folders,
+            initial_folders,
+            refreshed_folders,
+            refreshed_folders,
+        ]
+        mock_email_client.create_folder.return_value = None
+
+        manager = FolderManager(mock_email_client)
+        manager.initialize()
+
+        folder = manager.ensure_category_folder("Subscriptions")
+        assert folder is not None
+        assert folder.id == "folder-subscriptions"
+        mock_email_client.create_folder.assert_called_once_with("Subscriptions")
+
     def test_ensure_subcategory_folder(self, mock_email_client, sample_folders):
         """Test creating subcategory folder."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
         new_subfolder = Folder(id="folder-sub", displayName="Priority", parentFolderId="folder-2")
         mock_email_client.create_folder.return_value = new_subfolder
 
@@ -170,6 +229,42 @@ class TestFolderManagerCreation:
         folder = manager.ensure_subcategory_folder("Action", "Priority")
         assert folder is not None
         mock_email_client.create_folder.assert_called_once_with("Priority", "folder-2")
+
+    def test_ensure_subcategory_folder_handles_conflict_by_refreshing_and_resolving(
+        self, mock_email_client
+    ) -> None:
+        """Treat 409 conflict (create_folder returns None) as OK and resolve existing child."""
+
+        initial_folders = [
+            Folder(id="folder-action", displayName="Action", parentFolderId=None),
+        ]
+        refreshed_folders = [
+            Folder(id="folder-action", displayName="Action", parentFolderId=None),
+            Folder(
+                id="folder-action-subscriptions",
+                displayName="Subscriptions",
+                parentFolderId="folder-action",
+            ),
+        ]
+
+        mock_email_client.get_folders.side_effect = [
+            initial_folders,
+            initial_folders,
+            refreshed_folders,
+            refreshed_folders,
+        ]
+        mock_email_client.create_folder.return_value = None
+
+        manager = FolderManager(mock_email_client)
+        manager.initialize()
+
+        folder = manager.ensure_subcategory_folder("Action", "Subscriptions")
+        assert folder is not None
+        assert folder.id == "folder-action-subscriptions"
+        mock_email_client.create_folder.assert_called_once_with(
+            "Subscriptions",
+            "folder-action",
+        )
 
     def test_ensure_subcategory_folder_prefers_child_over_root_same_name(
         self, mock_email_client
@@ -189,7 +284,7 @@ class TestFolderManagerCreation:
                 parentFolderId="folder-action",
             ),
         ]
-        mock_email_client.get_folders.return_value = folders
+        mock_email_client.get_folders.side_effect = [folders, folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -205,7 +300,7 @@ class TestFolderManagerDestination:
 
     def test_get_destination_folder_category_only(self, mock_email_client, sample_folders):
         """Test getting destination folder for category only."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()
@@ -224,7 +319,7 @@ class TestFolderManagerDestination:
 
     def test_get_destination_folder_with_subcategory(self, mock_email_client, sample_folders):
         """Test getting destination folder with subcategory."""
-        mock_email_client.get_folders.return_value = sample_folders
+        mock_email_client.get_folders.side_effect = [sample_folders, sample_folders]
 
         manager = FolderManager(mock_email_client)
         manager.initialize()

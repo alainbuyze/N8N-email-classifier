@@ -38,6 +38,9 @@ Error handling:
 import logging
 from typing import Optional
 
+from urllib.parse import quote
+from typing import AbstractSet
+
 import requests
 
 from .auth import GraphAuthenticator
@@ -79,6 +82,7 @@ class EmailClient:
         endpoint: str,
         params: Optional[dict] = None,
         json_data: Optional[dict] = None,
+        suppress_statuses: Optional[AbstractSet[int]] = None,
     ) -> dict:
         """Make an authenticated request to Microsoft Graph.
 
@@ -113,9 +117,17 @@ class EmailClient:
         )
 
         if not response.ok:
-            logger.error(
-                f"Graph API error: {response.status_code} - {response.text}"
-            )
+            suppress = suppress_statuses and response.status_code in suppress_statuses
+            if suppress:
+                logger.debug(
+                    "Graph API expected non-2xx: %s - %s",
+                    response.status_code,
+                    response.text,
+                )
+            else:
+                logger.error(
+                    f"Graph API error: {response.status_code} - {response.text}"
+                )
             response.raise_for_status()
 
         if response.status_code == 204:
@@ -153,7 +165,8 @@ class EmailClient:
         """
         # Build endpoint
         if folder_id:
-            endpoint = f"/me/mailFolders/{folder_id}/messages"
+            safe_folder_id = quote(folder_id, safe="")
+            endpoint = f"/me/mailFolders/{safe_folder_id}/messages"
         else:
             endpoint = "/me/mailFolders/inbox/messages"
 
@@ -167,7 +180,7 @@ class EmailClient:
         # Build query parameters
         params = {
             "$top": limit,
-            "$select": "id,subject,receivedDateTime,body,sender,from,toRecipients,importance,isRead,categories,flag",
+            "$select": "id,parentFolderId,subject,receivedDateTime,body,sender,from,toRecipients,importance,isRead,categories,flag",
             "$orderby": "receivedDateTime desc",
         }
 
@@ -189,7 +202,12 @@ class EmailClient:
         logger.debug(f"Fetched {len(emails)} emails")
         return emails
 
-    def move_email(self, email_id: str, folder_id: str) -> bool:
+    def move_email(
+        self,
+        email_id: str,
+        folder_id: str,
+        source_folder_id: Optional[str] = None,
+    ) -> bool:
         """Move an email to a different folder.
 
         This wraps the Graph move endpoint. Failures are logged and returned as
@@ -203,7 +221,8 @@ class EmailClient:
         Returns:
             bool: True if successful.
         """
-        endpoint = f"/me/messages/{email_id}/move"
+        safe_email_id = quote(email_id, safe="")
+        endpoint = f"/me/messages/{safe_email_id}/move"
         json_data = {"destinationId": folder_id}
 
         try:
@@ -211,6 +230,55 @@ class EmailClient:
             logger.debug(f"Moved email {email_id} to folder {folder_id}")
             return True
         except requests.HTTPError as e:
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if status_code == 404 and source_folder_id:
+                logger.debug(
+                    "Primary move returned 404; attempting fallback (email_id=%r, source_folder_id=%r)",
+                    email_id,
+                    source_folder_id,
+                )
+                try:
+                    safe_source_folder_id = quote(source_folder_id, safe="")
+                    fallback_endpoint = (
+                        f"/me/mailFolders/{safe_source_folder_id}"
+                        f"/messages/{safe_email_id}/move"
+                    )
+                    self._make_request("POST", fallback_endpoint, json_data=json_data)
+                    logger.debug(
+                        "Moved email %s to folder %s using fallback (source_folder_id=%s)",
+                        email_id,
+                        folder_id,
+                        source_folder_id,
+                    )
+                    return True
+                except requests.HTTPError as retry_error:
+                    retry_status = getattr(
+                        getattr(retry_error, "response", None), "status_code", None
+                    )
+                    if retry_status == 404:
+                        logger.warning(
+                            "Message not found (404) on both primary and fallback move; "
+                            "likely already moved or deleted (email_id=%s, source_folder_id=%s)",
+                            email_id,
+                            source_folder_id,
+                        )
+                    else:
+                        logger.error(
+                            "Failed to move email %s (fallback) to folder %s: %s",
+                            email_id,
+                            folder_id,
+                            retry_error,
+                        )
+                    return False
+
+            if status_code == 404:
+                logger.warning(
+                    "Message not found (404) on primary move; no source_folder_id for fallback "
+                    "(email_id=%s). Likely already moved or deleted.",
+                    email_id,
+                )
+                return False
+
             logger.error(f"Failed to move email {email_id}: {e}")
             return False
 
@@ -309,7 +377,12 @@ class EmailClient:
         json_data = {"displayName": display_name}
 
         try:
-            response = self._make_request("POST", endpoint, json_data=json_data)
+            response = self._make_request(
+                "POST",
+                endpoint,
+                json_data=json_data,
+                suppress_statuses={409},
+            )
             folder = Folder.model_validate(response)
             logger.debug(f"Created folder: {display_name}")
             return folder

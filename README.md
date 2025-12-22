@@ -74,6 +74,9 @@ AZURE_CLIENT_ID=your-client-id
 # For personal accounts, use "consumers"
 AZURE_TENANT_ID=consumers
 
+# Optional: pick which cached Outlook account to use (when multiple are present)
+OUTLOOK_ACCOUNT_USERNAME=you@example.com
+
 # Groq
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama-3.1-70b-versatile
@@ -81,6 +84,8 @@ GROQ_MODEL=llama-3.1-70b-versatile
 # Categorization
 BOSS_EMAIL=boss@yourcompany.com
 COMPANY_DOMAIN=yourcompany.com
+MANAGEMENT_EMAILS=ceo@yourcompany.com,cfo@yourcompany.com
+DIRECT_REPORTS_EMAILS=report1@yourcompany.com,report2@yourcompany.com
 COLLABORATOR_EMAILS=colleague1@company.com,colleague2@company.com
 
 # Processing
@@ -96,11 +101,18 @@ LOG_LEVEL=INFO
 # Process emails with default settings
 python -m src.outlook_categorizer.cli
 
+# Use a specific Outlook account (if multiple accounts exist in MSAL cache)
+python -m src.outlook_categorizer.cli --account-username you@example.com
+
 # Process only 5 emails
 python -m src.outlook_categorizer.cli --limit 5
 
 # Process a specific folder by label (name or path)
 python -m src.outlook_categorizer.cli --limit 5 --folder-label "Inbox/Boss"
+
+# Note: when a folder is selected, emails are fetched from that folder and all subfolders
+
+# Note: when a folder is selected, emails are not filtered by existing Outlook categories
 
 # Dry run (categorize without moving)
 python -m src.outlook_categorizer.cli --dry-run

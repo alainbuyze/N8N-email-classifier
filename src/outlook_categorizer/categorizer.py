@@ -37,13 +37,14 @@ Operational notes:
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
+import re
+
 from groq import Groq
 
-from .config import Settings, EmailCategory
+from .config import Settings
 from .models import Email, CategorizationResult
 from .sanitizer import sanitize_email_body, is_noreply_address, extract_sender_domain
 
@@ -84,8 +85,42 @@ class EmailCategorizer:
             str: Prompt template text.
         """
 
-        prompt_path = Path(__file__).resolve().parent / "prompts" / "system_prompt.txt"
+        prompt_path = (
+            Path(__file__).resolve().parent
+            / "prompts"
+            / "Email Categorization prompt.md"
+        )
         return prompt_path.read_text(encoding="utf-8")
+
+    def _render_system_prompt_template(self, template: str) -> str:
+        """Render the system prompt template using safe placeholder substitution.
+
+        This project intentionally stores prompts as Markdown that can include
+        JSON examples and other brace-heavy content.
+
+        Python's ``str.format`` is unsafe here because it treats *any* ``{...}``
+        as a format field (including JSON objects like ``{"ID": ...}``).
+
+        Args:
+            template: Raw template text.
+
+        Returns:
+            str: Rendered template with known placeholders replaced.
+        """
+
+        replacements = {
+            "{boss_email}": self.settings.boss_email,
+            "{company_domain}": self.settings.company_domain,
+            "{management_emails}": (self.settings.management_emails or ""),
+            "{direct_reports_emails}": (self.settings.direct_reports_emails or ""),
+            "{categories}": ", ".join(self.settings.categories_list),
+        }
+
+        rendered = template
+        for key, value in replacements.items():
+            rendered = rendered.replace(key, value)
+
+        return rendered
 
     def _build_system_prompt(self) -> str:
         """
@@ -97,52 +132,35 @@ class EmailCategorizer:
         Returns:
             str: System prompt with categorization rules.
         """
-        categories = ", ".join(self.settings.categories_list)
-
         try:
             template = self._load_system_prompt_template()
-            return template.format(
-                boss_email=self.settings.boss_email,
-                company_domain=self.settings.company_domain,
-                categories=categories,
-            )
+            rendered = self._render_system_prompt_template(template)
+            # Reason: Extremely large system prompts can increase the odds of
+            # incomplete/truncated model output.
+            return rendered[:12000]
         except Exception as e:
             logger.warning(f"Failed to load system prompt file: {e}")
-            return f"""You're an AI assistant for a business manager, categorizing emails. Email info is in <email> tags.
+            return """You're an AI assistant for a business manager, categorizing emails. Email info is in <email> tags.
+                Key points:
 
-Categorization priority:
+                - Analyze the subject, body, email addresses and other data
+                - Look for specific keywords and phrases for each category
+                - Email can have 2 categories: primary and sub (e.g., "Action" and "Boss")
+                - Emails from business development executives are often junk
+                - Emojis in subject often indicate junk/spam
 
-Action: Needs response or action from a personal email address
-Response: An email that is a response to a personal email from the user
-Junk: Ads, sales, newsletters, promotions, daily digests. Often the reply email address is noreply@...
-Spam: Phishing, scams, discounts, suspicious emails. Including emails from Zendesk, often urging action, impersonal address
-Receipt: Any purchase confirmation
-Boss: A message from the boss ({self.settings.boss_email}), addressed personally
-Company: A message from the company domain (@{self.settings.company_domain})
-Collaborators: A message from team members
-Community: Updates, events, forums, everything related to "community"
-Business: Any communication related to business, usually from a non-personal email address
-Other: Doesn't fit into any other category
+                Output in valid JSON format only:
+                {{
+                "ID": "email_id",
+                "subject": "SUBJECT_LINE",
+                "category": "PRIMARY_CATEGORY",
+                "subCategory": "SUBCATEGORY",
+                "analysis": "Brief 1-2 sentence explanation",
+                "senderGoal": "Very short (3-8 words) description of why the sender sent this email"
+                }}
 
-Key points:
-
-- Analyze the subject, body, email addresses and other data
-- Look for specific keywords and phrases for each category
-- Email can have 2 categories: primary and sub (e.g., "Action" and "Boss")
-- Emails from business development executives are often junk
-- Emojis in subject often indicate junk/spam
-
-Output in valid JSON format only:
-{{
-  "ID": "email_id",
-  "subject": "SUBJECT_LINE",
-  "category": "PRIMARY_CATEGORY",
-  "subCategory": "SUBCATEGORY",
-  "analysis": "Brief 1-2 sentence explanation"
-}}
-
-No additional text or tokens outside the JSON.
-You may only use these categories: {categories}"""
+                No additional text or tokens outside the JSON.
+                """
 
     def _build_user_prompt(self, email: Email, sanitized_body: str) -> str:
         """
@@ -164,7 +182,7 @@ You may only use these categories: {categories}"""
             "sender": email.sender_email,
             "from": email.from_email,
             "importance": email.importance,
-            "body": sanitized_body[:2000],  # Limit body size
+            "body": sanitized_body[:1200],  # Limit body size
         }
 
         return f"""Categorize the following email:
@@ -173,7 +191,9 @@ You may only use these categories: {categories}"""
 </email>
 
 Ensure your final output is valid JSON with no additional text.
-Available categories: {", ".join(self.settings.categories_list)}"""
+Also include senderGoal: a very short description (3-8 words) of the sender's intent.
+Return a single JSON object only (no Markdown fences).
+"""
 
     def _parse_response(
         self, response_text: str, email_id: str
@@ -195,34 +215,153 @@ Available categories: {", ".join(self.settings.categories_list)}"""
         Returns:
             Optional[CategorizationResult]: Parsed result or None if failed.
         """
-        # Try to extract JSON from response
-        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        if not json_match:
-            logger.error(f"No JSON found in response: {response_text[:200]}")
+        extracted = self._extract_first_json_object(response_text)
+        if extracted is None:
+            snippet = (response_text or "")[:300].replace("\n", "\\n")
+            logger.warning(
+                "LLM response had no parseable JSON (email_id=%s, response_text=%s)",
+                email_id,
+                response_text,
+            )
             return None
 
         try:
-            data = json.loads(json_match.group())
+            data = json.loads(extracted)
 
             # Ensure ID is set
             if "ID" not in data and "id" not in data:
                 data["ID"] = email_id
 
-            # Validate category
+            if "senderGoal" not in data and "sender_goal" not in data:
+                data["senderGoal"] = ""
+
+            '''# Validate category
             category = data.get("category", "Other")
             valid_categories = [c.value for c in EmailCategory]
             if category not in valid_categories:
                 logger.warning(f"Invalid category '{category}', defaulting to 'Other'")
                 data["category"] = "Other"
+                '''
 
             return CategorizationResult.model_validate(data)
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            snippet = (response_text or "")[:300].replace("\n", "\\n")
+            logger.warning(
+                "Failed to parse JSON from LLM response (email_id=%s, error=%s, snippet=%s)",
+                email_id,
+                str(e),
+                snippet,
+            )
             return None
         except Exception as e:
             logger.error(f"Failed to create CategorizationResult: {e}")
             return None
+
+    def _extract_first_json_object(self, response_text: str) -> Optional[str]:
+        """Extract the first valid JSON object from a model response.
+
+        The Groq model is instructed to return raw JSON, but in practice it can
+        include surrounding text, Markdown fences, or multiple JSON blobs.
+
+        This function uses Python's JSONDecoder to locate the first decodable
+        JSON object starting from the first '{' and then scanning forward.
+
+        Args:
+            response_text: Raw model response text.
+
+        Returns:
+            Optional[str]: JSON object string if found, else None.
+        """
+        if not response_text:
+            return None
+
+        cleaned = self._strip_code_fences(response_text)
+
+        decoder = json.JSONDecoder()
+        start = cleaned.find("{")
+        while start != -1:
+            try:
+                _, end = decoder.raw_decode(cleaned[start:])
+                return cleaned[start : start + end]
+            except json.JSONDecodeError:
+                start = cleaned.find("{", start + 1)
+
+        # Some models return an object but truncate it mid-field. Try a
+        # best-effort recovery to salvage at least category/subCategory.
+        recovered = self._recover_truncated_json(cleaned)
+        if recovered is not None:
+            return recovered
+
+        return None
+
+    def _strip_code_fences(self, text: str) -> str:
+        """Remove Markdown code fences from a model response.
+
+        Args:
+            text: Raw model response.
+
+        Returns:
+            str: Response with code fences removed.
+        """
+
+        # Remove ```json ... ``` and generic ``` ... ``` wrappers.
+        return re.sub(r"```(?:json)?\s*|```", "", text, flags=re.IGNORECASE)
+
+    def _recover_truncated_json(self, text: str) -> Optional[str]:
+        """Best-effort recovery for truncated JSON objects.
+
+        This handles cases where the response begins with '{' and contains
+        valid JSON fields, but is cut off mid-key or mid-string.
+
+        Strategy:
+            - Start from the first '{'.
+            - Iteratively trim trailing partial content back to a stable
+              boundary (newline/comma), then
+            - Auto-close missing braces and attempt json.loads.
+
+        Args:
+            text: Cleaned model response.
+
+        Returns:
+            Optional[str]: A JSON string that can be parsed, or None.
+        """
+
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        candidate = text[start:]
+
+        # Avoid pathological loops.
+        for _ in range(200):
+            snippet = candidate.strip()
+            if len(snippet) < 2:
+                return None
+
+            open_braces = snippet.count("{")
+            close_braces = snippet.count("}")
+            missing = max(0, open_braces - close_braces)
+
+            attempt = snippet + ("}" * missing)
+            attempt = re.sub(r",\s*}\s*$", "}\n", attempt)
+
+            try:
+                json.loads(attempt)
+                return attempt
+            except json.JSONDecodeError:
+                pass
+
+            # Trim to a likely safe boundary.
+            last_nl = candidate.rfind("\n")
+            last_comma = candidate.rfind(",")
+            cut = max(last_nl, last_comma)
+            if cut <= 0:
+                candidate = candidate[:-1]
+            else:
+                candidate = candidate[:cut]
+
+        return None
 
     def categorize(self, email: Email) -> Optional[CategorizationResult]:
         """
@@ -244,11 +383,11 @@ Available categories: {", ".join(self.settings.categories_list)}"""
         body_content = email.body.content if email.body else ""
         sanitized_body = sanitize_email_body(body_content, content_type)
 
-        # Apply quick heuristics for obvious cases
+        '''# Apply quick heuristics for obvious cases
         quick_result = self._apply_heuristics(email)
         if quick_result:
             logger.info(f"Quick categorization for '{email.subject}': {quick_result.category}")
-            return quick_result
+            return quick_result'''
 
         # Build prompts
         system_prompt = self._build_system_prompt()
@@ -262,11 +401,11 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2,
-                max_tokens=500,
+                temperature=0,
+                max_tokens=900,
             )
 
-            response_text = response.choices[0].message.content
+            response_text = (response.choices[0].message.content or "").strip()
             logger.debug(f"LLM response: {response_text}")
 
             result = self._parse_response(response_text, email.id)
@@ -275,11 +414,33 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                     f"Categorized '{email.subject}' as {result.category}"
                     f"{f'/{result.sub_category}' if result.sub_category else ''}"
                 )
-            return result
+                return result
+
+            logger.warning(
+                "LLM categorization unusable; falling back to Other (email_id=%s)",
+                email.id,
+            )
+            return CategorizationResult(
+                id=email.id,
+                subject=email.subject,
+                category="Other",
+                analysis="LLM response could not be parsed",
+                sender_goal="",
+            )
 
         except Exception as e:
-            logger.error(f"Failed to categorize email: {e}")
-            return None
+            logger.warning(
+                "LLM categorization failed; falling back to Other (email_id=%s, error=%s)",
+                email.id,
+                str(e),
+            )
+            return CategorizationResult(
+                id=email.id,
+                subject=email.subject,
+                category="Other",
+                analysis="LLM call failed",
+                sender_goal="",
+            )
 
     def _apply_heuristics(self, email: Email) -> Optional[CategorizationResult]:
         """
@@ -307,6 +468,18 @@ Available categories: {", ".join(self.settings.categories_list)}"""
 
         sender_domain = extract_sender_domain(sender)
 
+        # Microsoft account security / sign-in alerts (common and time-sensitive).
+        # Reason: These emails are high-signal, frequently formatted in a way that can
+        # confuse the LLM output, and should reliably route to Action.
+        if sender_domain and sender_domain.endswith("accountprotection.microsoft.com"):
+            return CategorizationResult(
+                id=email.id,
+                subject=email.subject,
+                category="Action",
+                analysis="Microsoft account security alert",
+                sender_goal="Verify new account sign-in",
+            )
+
         # Domain-based business routing
         if sender_domain == "em.delhaize.be":
             return CategorizationResult(
@@ -315,6 +488,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                 category="Business",
                 sub_category="Delhaize",
                 analysis="Email from Delhaize marketing domain",
+                sender_goal="Promote Delhaize offers",
             )
 
         # Check for boss
@@ -326,6 +500,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                     subject=email.subject,
                     category="Boss",
                     analysis="Email from boss",
+                    sender_goal="Request your attention",
                 )
 
         # Check for collaborators
@@ -335,6 +510,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                 subject=email.subject,
                 category="Collaborators",
                 analysis="Email from team collaborator",
+                sender_goal="Share a work update",
             )
 
         # Check for company domain
@@ -346,6 +522,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                     subject=email.subject,
                     category="Company",
                     analysis=f"Email from company domain ({domain})",
+                    sender_goal="Provide a company update",
                 )
 
         # Check for obvious spam/junk indicators
@@ -358,6 +535,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                     subject=email.subject,
                     category="Receipt",
                     analysis="Purchase/order confirmation from noreply address",
+                    sender_goal="Confirm your purchase",
                 )
 
         return None
@@ -388,6 +566,7 @@ Available categories: {", ".join(self.settings.categories_list)}"""
                         subject=email.subject,
                         category="Other",
                         analysis="Failed to categorize, defaulting to Other",
+                        sender_goal="",
                     )
                 )
         return results

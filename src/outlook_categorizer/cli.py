@@ -33,12 +33,14 @@ from typing import Optional
 
 try:
     from .orchestrator import EmailOrchestrator
+    from .config import get_settings
 except ImportError:  # pragma: no cover
     src_root = Path(__file__).resolve().parents[1]
     if str(src_root) not in sys.path:
         sys.path.insert(0, str(src_root))
 
     from outlook_categorizer.orchestrator import EmailOrchestrator
+    from outlook_categorizer.config import get_settings
 
 
 class _HttpxRequestInfoToDebugFilter(logging.Filter):
@@ -146,7 +148,10 @@ def print_results(results: list, verbose: bool = False) -> None:
             if sender:
                 prefix += f"{sender} "
 
-            print(f"  {status} {prefix}{subject}{subcat}")
+            sender_goal = (getattr(item, "sender_goal", "") or "").strip()
+            goal_suffix = f" — {sender_goal}" if sender_goal else ""
+
+            print(f"  {status} {prefix}{subject}{subcat}{goal_suffix}")
 
             if verbose and item.error:
                 print(f"      Error: {item.error}")
@@ -204,6 +209,16 @@ Examples:
     )
 
     parser.add_argument(
+        "--account-username",
+        type=str,
+        default=None,
+        help=(
+            "Outlook account username to select from the MSAL token cache. "
+            "Overrides OUTLOOK_ACCOUNT_USERNAME when provided."
+        ),
+    )
+
+    parser.add_argument(
         "--dry-run",
         "-d",
         action="store_true",
@@ -240,7 +255,11 @@ Examples:
             print("⚠️  DRY RUN MODE - Emails will not be moved\n")
 
         # Run orchestrator
-        orchestrator = EmailOrchestrator()
+        settings = get_settings()
+        if parsed_args.account_username:
+            settings.outlook_account_username = parsed_args.account_username
+
+        orchestrator = EmailOrchestrator(settings=settings)
         results = orchestrator.run(
             limit=parsed_args.limit,
             folder_label=parsed_args.folder_label,

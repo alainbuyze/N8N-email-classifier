@@ -131,6 +131,43 @@ class GraphAuthenticator:
             logger.debug("Created MSAL public client application")
         return self._app
 
+    def _select_account(self, accounts: list[dict]) -> Optional[dict]:
+        """Select a cached MSAL account.
+
+        The app may have multiple cached accounts if the user authenticated
+        different Outlook identities over time. When
+        ``settings.outlook_account_username`` is set, this function selects the
+        matching account by username (case-insensitive). Otherwise it returns
+        the first cached account.
+
+        Args:
+            accounts: List of cached MSAL accounts.
+
+        Returns:
+            Optional[dict]: Selected account or None when no accounts exist.
+
+        Raises:
+            ValueError: If a preferred username is configured but not found.
+        """
+        if not accounts:
+            return None
+
+        preferred = (self.settings.outlook_account_username or "").strip()
+        if not preferred:
+            return accounts[0]
+
+        preferred_lower = preferred.lower()
+        for account in accounts:
+            username = str(account.get("username", "")).strip().lower()
+            if username and username == preferred_lower:
+                return account
+
+        available = [a.get("username") for a in accounts if a.get("username")]
+        raise ValueError(
+            "Configured OUTLOOK_ACCOUNT_USERNAME was not found in token cache. "
+            f"preferred={preferred!r} available={available!r}"
+        )
+
     def get_access_token(self) -> str:
         """
         Acquire access token for Microsoft Graph API.
@@ -154,9 +191,10 @@ class GraphAuthenticator:
         accounts = app.get_accounts()
         if accounts:
             logger.debug(f"Found {len(accounts)} cached account(s)")
+            selected = self._select_account(accounts)
             result = app.acquire_token_silent(
                 scopes=self.GRAPH_SCOPES,
-                account=accounts[0],
+                account=selected,
             )
             if result and "access_token" in result:
                 logger.debug("Successfully acquired token from cache")

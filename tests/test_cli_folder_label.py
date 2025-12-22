@@ -10,7 +10,7 @@ def test_cli_passes_folder_label_to_orchestrator(monkeypatch) -> None:
     monkeypatch.setattr(
         cli,
         "EmailOrchestrator",
-        lambda: orchestrator_instance,
+        lambda *args, **kwargs: orchestrator_instance,
     )
 
     orchestrator_instance.run.return_value = []
