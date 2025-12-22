@@ -129,7 +129,11 @@ class EmailOrchestrator:
                 )
 
             # Move email to folder
-            moved = self.email_client.move_email(email.id, folder.id)
+            moved = self.email_client.move_email(
+                email.id,
+                folder.id,
+                source_folder_id=email.parent_folder_id,
+            )
 
             return ProcessingResult(
                 email_id=email.id,
@@ -138,6 +142,7 @@ class EmailOrchestrator:
                 received_date_time=email.received_date_time,
                 category=categorization.category,
                 sub_category=categorization.sub_category,
+                sender_goal=categorization.sender_goal,
                 folder_id=folder.id,
                 success=moved,
                 error=None if moved else "Failed to move email",
@@ -189,6 +194,10 @@ class EmailOrchestrator:
         batch_size = limit or self.settings.email_batch_size
         target_folder_id = folder_id or self.settings.inbox_folder_id
 
+        source_folder: Optional[str] = None
+        explicit_source_folder = bool(folder_label or folder_id or self.settings.inbox_folder_id)
+        skip_categorized = not explicit_source_folder
+
         logger.info(f"Starting email categorization (batch_size={batch_size})")
 
         # Initialize folder cache (needed for label resolution and destination folders).
@@ -200,23 +209,65 @@ class EmailOrchestrator:
                 raise ValueError(f"Folder label not found: {folder_label}")
 
             target_folder_id = resolved.id
+            source_folder = folder_label
             logger.info(
                 "Fetching emails from folder_label=%s (folder_id=%s)",
                 folder_label,
                 target_folder_id,
             )
         elif target_folder_id:
+            source_folder = f"folder_id={target_folder_id}"
             logger.info(f"Fetching emails from folder_id={target_folder_id}")
         else:
             logger.info("Fetching emails from Inbox (default)")
 
-        # Fetch emails
-        emails = self.email_client.get_emails(
-            folder_id=target_folder_id,
-            limit=batch_size,
-            skip_flagged=True,
-            skip_categorized=True,
-        )
+        # Always skip categorized emails to prevent 404 errors on re-runs
+        skip_categorized = True
+
+        # Fetch emails.
+        # When a specific folder is requested, include all subfolders.
+        if target_folder_id:
+            folders = self.folder_manager.get_descendant_folders(
+                target_folder_id,
+                include_self=True,
+            )
+            folder_ids = [f.id for f in folders]
+            logger.info(
+                "Including subfolders for source=%s (folders=%s)",
+                source_folder or target_folder_id,
+                len(folder_ids),
+            )
+
+            seen: set[str] = set()
+            emails = []
+
+            remaining = batch_size
+            for fid in folder_ids:
+                if remaining <= 0:
+                    break
+
+                chunk = self.email_client.get_emails(
+                    folder_id=fid,
+                    limit=remaining,
+                    skip_flagged=True,
+                    skip_categorized=skip_categorized,
+                )
+
+                for email in chunk:
+                    if email.id in seen:
+                        continue
+                    seen.add(email.id)
+                    emails.append(email)
+                    remaining -= 1
+                    if remaining <= 0:
+                        break
+        else:
+            emails = self.email_client.get_emails(
+                folder_id=None,
+                limit=batch_size,
+                skip_flagged=True,
+                skip_categorized=skip_categorized,
+            )
 
         if not emails:
             logger.info("No emails to process")
@@ -240,6 +291,7 @@ class EmailOrchestrator:
                             received_date_time=email.received_date_time,
                             category=categorization.category,
                             sub_category=categorization.sub_category,
+                            sender_goal=categorization.sender_goal,
                             success=True,
                             error="DRY RUN - not moved",
                         )

@@ -29,6 +29,7 @@ def test_api_run_returns_results_and_summary() -> None:
             subject="Hello",
             sender="alice@example.com",
             category="Business",
+            sender_goal="Request information",
             success=True,
         ),
         ProcessingResult(
@@ -36,6 +37,7 @@ def test_api_run_returns_results_and_summary() -> None:
             subject="Oops",
             sender="bob@example.com",
             category="Other",
+            sender_goal="",
             success=False,
             error="boom",
         ),
@@ -55,6 +57,7 @@ def test_api_run_returns_results_and_summary() -> None:
     assert payload["summary"] == {"total": 2, "successful": 1, "failed": 1}
     assert len(payload["results"]) == 2
     assert payload["results"][0]["email_id"] == "e1"
+    assert payload["results"][0]["sender_goal"] == "Request information"
     assert payload["results"][1]["success"] is False
 
     orchestrator.run.assert_called_once_with(

@@ -53,6 +53,7 @@ class EmailCategory(str, Enum):
     COMMUNITY = "Community"
     BUSINESS = "Business"
     OTHER = "Other"
+    SECURITY = "Security"
 
 
 class Settings(BaseSettings):
@@ -92,6 +93,14 @@ class Settings(BaseSettings):
         default="consumers", description="Azure AD tenant ID (consumers for personal accounts)"
     )
 
+    outlook_account_username: Optional[str] = Field(
+        default=None,
+        description=(
+            "Preferred Outlook account username to select from the MSAL token cache. "
+            "If omitted, the first cached account is used."
+        ),
+    )
+
     # Groq Configuration
     groq_api_key: str = Field(..., description="Groq API key")
     groq_model: str = Field(
@@ -101,6 +110,12 @@ class Settings(BaseSettings):
     # Categorization Settings
     boss_email: str = Field(default="", description="Boss email address")
     company_domain: str = Field(default="", description="Company domain")
+    management_emails: str = Field(
+        default="", description="Comma-separated list of management emails"
+    )
+    direct_reports_emails: str = Field(
+        default="", description="Comma-separated list of direct report emails"
+    )
     collaborator_emails: str = Field(
         default="", description="Comma-separated list of collaborator emails"
     )
@@ -128,6 +143,28 @@ class Settings(BaseSettings):
         if not self.collaborator_emails:
             return []
         return [email.strip().lower() for email in self.collaborator_emails.split(",")]
+
+    @property
+    def management_email_list(self) -> list[str]:
+        """Parse management emails from comma-separated string.
+
+        Returns:
+            list[str]: List of management email addresses.
+        """
+        if not self.management_emails:
+            return []
+        return [email.strip().lower() for email in self.management_emails.split(",")]
+
+    @property
+    def direct_reports_email_list(self) -> list[str]:
+        """Parse direct report emails from comma-separated string.
+
+        Returns:
+            list[str]: List of direct report email addresses.
+        """
+        if not self.direct_reports_emails:
+            return []
+        return [email.strip().lower() for email in self.direct_reports_emails.split(",")]
 
     @property
     def categories_list(self) -> list[str]:

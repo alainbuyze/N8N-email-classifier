@@ -107,6 +107,7 @@ class Email(BaseModel):
 
     id: str
     subject: str = ""
+    parent_folder_id: Optional[str] = Field(default=None, alias="parentFolderId")
     received_date_time: Optional[datetime] = Field(default=None, alias="receivedDateTime")
     body: EmailBody = Field(default_factory=EmailBody)
     sender: Optional[EmailRecipient] = None
@@ -158,6 +159,7 @@ class CategorizationResult(BaseModel):
         category: Primary category assigned.
         sub_category: Optional subcategory.
         analysis: Brief explanation of categorization.
+        sender_goal: Very short description of the sender's intent.
     """
 
     id: str = Field(alias="ID", default="")
@@ -165,6 +167,7 @@ class CategorizationResult(BaseModel):
     category: str
     sub_category: Optional[str] = Field(default=None, alias="subCategory")
     analysis: str = ""
+    sender_goal: str = Field(default="", alias="senderGoal")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -203,6 +206,7 @@ class ProcessingResult(BaseModel):
         subject: Email subject.
         category: Assigned category.
         sub_category: Assigned subcategory.
+        sender_goal: Very short description of the sender's intent.
         folder_id: Destination folder ID.
         success: Whether processing succeeded.
         error: Error message if failed.
@@ -214,6 +218,7 @@ class ProcessingResult(BaseModel):
     received_date_time: Optional[datetime] = None
     category: str
     sub_category: Optional[str] = None
+    sender_goal: str = ""
     folder_id: Optional[str] = None
     success: bool = True
     error: Optional[str] = None

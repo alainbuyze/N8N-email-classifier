@@ -5,18 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Results - Outlook Email Categorizer</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 32px; }
-      .container { max-width: 1100px; margin: 0 auto; }
+      body { font-family: Arial, sans-serif; margin: 0; }
+      .container { width: 100%; margin: 0; padding: 0 16px; box-sizing: border-box; }
       .top { display:flex; align-items:center; justify-content: space-between; gap: 16px; }
       a { color: #111827; }
       .summary { margin-top: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-      th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
+      .table-wrap { overflow-x: auto; margin-top: 16px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; table-layout: fixed; }
+      th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       th { background: #f9fafb; }
       .badge { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.85rem; }
       .ok { background: #dcfce7; }
       .bad { background: #fee2e2; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+      th:nth-child(1), td:nth-child(1) { width: 70px; }
+      th:nth-child(2), td:nth-child(2) { width: 170px; }
+      th:nth-child(3), td:nth-child(3) { width: 200px; }
+      th:nth-child(4), td:nth-child(4) { width: 340px; }
+      th:nth-child(5), td:nth-child(5) { width: 300px; }
+      th:nth-child(6), td:nth-child(6) { width: 110px; }
+      th:nth-child(7), td:nth-child(7) { width: 140px; }
+      th:nth-child(8), td:nth-child(8) { width: 240px; }
+
+      th:nth-child(3), td:nth-child(3) {
+        white-space: normal;
+        word-break: break-word;
+        overflow: visible;
+        text-overflow: clip;
+      }
+
+      th:nth-child(4), td:nth-child(4),
+      th:nth-child(5), td:nth-child(5),
+      th:nth-child(8), td:nth-child(8) {
+        white-space: normal;
+        word-break: break-word;
+        overflow: visible;
+        text-overflow: clip;
+      }
     </style>
   </head>
   <body>
@@ -37,38 +63,47 @@
         </div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Received</th>
-            <th>Sender</th>
-            <th>Subject</th>
-            <th>Category</th>
-            <th>Subcategory</th>
-            <th>Error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in results %}
-          <tr>
-            <td>
-              {% if r.success %}
-                <span class="badge ok">OK</span>
-              {% else %}
-                <span class="badge bad">FAIL</span>
-              {% endif %}
-            </td>
-            <td>{{ r.received_date_time }}</td>
-            <td>{{ r.sender }}</td>
-            <td>{{ r.subject }}</td>
-            <td>{{ r.category }}</td>
-            <td>{{ r.sub_category }}</td>
-            <td>{{ r.error }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Received</th>
+              <th>Sender</th>
+              <th>Subject</th>
+              <th>Goal</th>
+              <th>Category</th>
+              <th>Subcategory</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr>
+              <td>
+                {% if r.success %}
+                  <span class="badge ok">OK</span>
+                {% else %}
+                  <span class="badge bad">FAIL</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.received_date_time %}
+                  {% set received = (r.received_date_time|string)|replace('T', ' ') %}
+                  {{ received[:16] }}
+                {% endif %}
+              </td>
+              <td>{{ (r.sender|string)|replace('@', '@\u200b') }}</td>
+              <td>{{ r.subject }}</td>
+              <td>{{ r.sender_goal }}</td>
+              <td>{{ r.category }}</td>
+              <td>{{ r.sub_category }}</td>
+              <td>{{ r.error }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </body>
 </html>

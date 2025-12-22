@@ -69,6 +69,7 @@ class FolderManager:
         self._folder_cache: dict[str, Folder] = {}
         self._folder_id_cache: dict[str, Folder] = {}
         self._child_folder_cache: dict[tuple[str, str], Folder] = {}
+        self._root_folder_ids: set[str] = set()
         self._initialized = False
 
     def initialize(self) -> None:
@@ -83,6 +84,9 @@ class FolderManager:
         The cache is populated from :meth:`EmailClient.get_folders` which may
         recursively list child folders.
         """
+        root_folders = self.email_client.get_folders(include_children=False)
+        self._root_folder_ids = {f.id for f in root_folders}
+
         folders = self.email_client.get_folders(include_children=True)
 
         self._folder_cache.clear()
@@ -169,12 +173,12 @@ class FolderManager:
         if not self._initialized:
             self.initialize()
 
-        normalized = label.strip().replace("\\\\", "/")
+        normalized = label.strip().replace("\\", "/")
         parts = [p.strip() for p in normalized.split("/") if p.strip()]
         if not parts:
             return None
 
-        current = self.get_folder_by_name(parts[0])
+        current = self._resolve_root_preferred_folder_name(parts[0])
         if not current:
             return None
 
@@ -186,6 +190,74 @@ class FolderManager:
             current = child
 
         return current
+
+    def _resolve_root_preferred_folder_name(self, name: str) -> Optional[Folder]:
+        """Resolve a single folder name, preferring the root-level folder.
+
+        Folder names are not globally unique; a mailbox can contain multiple
+        folders with the same display name at different depths.
+
+        Args:
+            name: Folder display name.
+
+        Returns:
+            Optional[Folder]: Resolved folder.
+        """
+
+        if not self._initialized:
+            self.initialize()
+
+        lowered = (name or "").strip().lower()
+        if not lowered:
+            return None
+
+        # Prefer a top-level folder when there are duplicates.
+        for folder in self._folder_id_cache.values():
+            if folder.display_name.lower() == lowered and folder.id in self._root_folder_ids:
+                return folder
+
+        return self.get_folder_by_name(name)
+
+    def get_descendant_folders(self, folder_id: str, include_self: bool = True) -> list[Folder]:
+        """Return all descendant folders for a folder id.
+
+        This uses the cached folder list built by :meth:`initialize`.
+
+        Args:
+            folder_id: Root folder id to start from.
+            include_self: Whether to include the root folder in results.
+
+        Returns:
+            list[Folder]: Folders including all descendants (depth-first).
+        """
+
+        if not folder_id:
+            return []
+
+        if not self._initialized:
+            self.initialize()
+
+        by_parent: dict[str, list[Folder]] = {}
+        for folder in self._folder_id_cache.values():
+            if folder.parent_folder_id:
+                by_parent.setdefault(folder.parent_folder_id, []).append(folder)
+
+        results: list[Folder] = []
+        if include_self:
+            root = self._folder_id_cache.get(folder_id)
+            if root:
+                results.append(root)
+
+        stack = list(reversed(by_parent.get(folder_id, [])))
+        while stack:
+            current = stack.pop()
+            results.append(current)
+
+            children = by_parent.get(current.id, [])
+            if children:
+                stack.extend(reversed(children))
+
+        return results
 
     def ensure_category_folder(self, category: str) -> Optional[Folder]:
         """
@@ -215,8 +287,13 @@ class FolderManager:
             self._folder_id_cache[new_folder.id] = new_folder
             return new_folder
 
-        # Refresh cache and try again (folder might have been created)
+        # Refresh cache and try again (folder might have been created).
+        # Reason: Graph returns 409 when a folder already exists; create_folder
+        # returns None in that case.
         self.refresh()
+        resolved = self._resolve_root_preferred_folder_name(category)
+        if resolved:
+            return resolved
         return self.get_folder_by_name(category)
 
     def ensure_subcategory_folder(
@@ -266,9 +343,18 @@ class FolderManager:
                 self._child_folder_cache[child_key] = new_folder
             return new_folder
 
-        # Refresh and try again
+        # Refresh and try again.
+        # Reason: Graph returns 409 when a folder already exists; create_folder
+        # returns None in that case.
         self.refresh()
-        return self._child_folder_cache.get(cache_key)
+
+        # Re-resolve the parent folder in case its id changed or cache updated.
+        parent_folder = self._folder_id_cache.get(parent_folder.id) or parent_folder
+        cache_key = (parent_folder.id, subcategory.lower())
+        resolved_child = self._child_folder_cache.get(cache_key)
+        if resolved_child:
+            return resolved_child
+        return None
 
 
     def get_destination_folder(

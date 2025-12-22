@@ -46,3 +46,6 @@ Thumbs.db
 
 # Docker
 *.pid
+
+# Azure setup with sensitive data
+azure-setup.md
