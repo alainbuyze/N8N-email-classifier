@@ -225,6 +225,11 @@ class EmailOrchestrator:
         # Fetch emails.
         # Only include subfolders if explicitly requested via folder_label
         # Do NOT include subfolders for default Inbox to avoid reprocessing already-categorized emails
+        logger.debug(
+            f"Folder selection: target_folder_id={target_folder_id}, "
+            f"folder_label={folder_label}, inbox_folder_id={self.settings.inbox_folder_id}"
+        )
+        
         if target_folder_id and folder_label:
             # Explicit folder label: include subfolders
             folders = self.folder_manager.get_descendant_folders(
@@ -263,6 +268,7 @@ class EmailOrchestrator:
                         break
         elif target_folder_id:
             # Folder ID specified but no label: fetch from that folder only (no subfolders)
+            logger.info(f"Fetching from single folder (no subfolders): {target_folder_id}")
             emails = self.email_client.get_emails(
                 folder_id=target_folder_id,
                 limit=batch_size,
@@ -271,6 +277,7 @@ class EmailOrchestrator:
             )
         else:
             # Default: fetch from Inbox only (no subfolders)
+            logger.info("Fetching from default Inbox (no subfolders)")
             emails = self.email_client.get_emails(
                 folder_id=None,
                 limit=batch_size,
