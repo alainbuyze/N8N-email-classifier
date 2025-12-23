@@ -4,11 +4,119 @@ This guide walks you through deploying the Outlook Email Categorizer to Azure Co
 
 ## Architecture
 
+### Component Overview
+
 - **Azure Container Registry (ACR)**: Stores Docker images
 - **Azure Container Apps**: Runs the web application
 - **Azure Key Vault**: Securely stores secrets (.env variables)
 - **GitHub Actions**: Automated CI/CD pipeline
 - **Managed Identity**: Secure access from Container App to Key Vault
+
+### Azure Components Dependency Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Azure Subscription                             │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │                    Resource Group                                 │ │
+│  │                 (outlook-categorizer-rg)                          │ │
+│  │                                                                   │ │
+│  │  ┌──────────────────────┐         ┌─────────────────────────┐   │ │
+│  │  │  Container Apps Env  │         │   Azure Key Vault       │   │ │
+│  │  │  (managed env)       │         │   (secrets storage)     │   │ │
+│  │  │                      │         │                         │   │ │
+│  │  │  ┌────────────────┐  │         │  • GROQ_API_KEY        │   │ │
+│  │  │  │ Container App  │  │         │  • AZURE_TENANT_ID     │   │ │
+│  │  │  │ (your app)     │◄─┼─────────┤  • AZURE_CLIENT_ID     │   │ │
+│  │  │  │                │  │  reads  │  • AZURE_CLIENT_SECRET │   │ │
+│  │  │  │ • Port: 8000   │  │ secrets │                         │   │ │
+│  │  │  │ • Scale: 0-3   │  │    via  │  Access via:            │   │ │
+│  │  │  │ • CPU: 1.0     │  │ Managed │  • RBAC Role Assignment │   │ │
+│  │  │  │ • Memory: 2GB  │  │ Identity│    (Key Vault Secrets   │   │ │
+│  │  │  │                │  │    │    │     User)               │   │ │
+│  │  │  └────────┬───────┘  │    │    └─────────────────────────┘   │ │
+│  │  │           │          │    │                                   │ │
+│  │  │           │pulls     │    │                                   │ │
+│  │  │           │image     │    │                                   │ │
+│  │  │           ▼          │    │                                   │ │
+│  │  └───────────┼──────────┘    │                                   │ │
+│  │              │               │                                   │ │
+│  │  ┌───────────▼──────────┐    │                                   │ │
+│  │  │ Container Registry   │    │                                   │ │
+│  │  │ (ACR)                │    │                                   │ │
+│  │  │                      │    │                                   │ │
+│  │  │ • Stores Docker      │    │                                   │ │
+│  │  │   images             │    │                                   │ │
+│  │  │ • Basic tier         │    │                                   │ │
+│  │  │ • Admin enabled      │    │                                   │ │
+│  │  │                      │    │                                   │ │
+│  │  │ Images:              │    │                                   │ │
+│  │  │ • outlook-           │    │                                   │ │
+│  │  │   categorizer:latest │    │                                   │ │
+│  │  │ • outlook-           │    │                                   │ │
+│  │  │   categorizer:sha    │    │                                   │ │
+│  │  └──────────▲───────────┘    │                                   │ │
+│  │             │                │                                   │ │
+│  └─────────────┼────────────────┼───────────────────────────────────┘ │
+│                │                │                                     │
+│                │ pushes         │ manages                             │
+│                │ image          │ secrets                             │
+└────────────────┼────────────────┼─────────────────────────────────────┘
+                 │                │
+                 │                │
+        ┌────────┴────────┐       │
+        │                 │       │
+        │  GitHub Actions │       │
+        │  (CI/CD)        │       │
+        │                 │       │
+        │  Workflow:      │       │
+        │  1. Build image │       │
+        │  2. Push to ACR │───────┘
+        │  3. Deploy to   │
+        │     Container   │
+        │     Apps        │
+        │                 │
+        │  Secrets:       │
+        │  • AZURE_       │
+        │    CREDENTIALS  │
+        │  • ACR_USERNAME │
+        │  • ACR_PASSWORD │
+        └─────────────────┘
+                │
+                │ triggered by
+                │ git push
+                │
+        ┌───────▼─────────┐
+        │                 │
+        │  GitHub Repo    │
+        │  (source code)  │
+        │                 │
+        │  • Dockerfile   │
+        │  • App code     │
+        │  • Workflow     │
+        │    (.yml)       │
+        └─────────────────┘
+```
+
+### Data Flow
+
+1. **Developer pushes code** → GitHub repository
+2. **GitHub Actions triggered** → Builds Docker image
+3. **Image pushed** → Azure Container Registry (ACR)
+4. **Container App updated** → Pulls new image from ACR
+5. **Container App starts** → Reads secrets from Key Vault via Managed Identity
+6. **User accesses app** → Container scales up from 0 to 1 replica
+7. **App authenticates** → Uses secrets to connect to Microsoft Graph API
+8. **Emails processed** → AI categorization via Groq API
+
+### Security Model
+
+- **Managed Identity**: Container App uses system-assigned managed identity (no passwords needed)
+- **RBAC**: Key Vault access controlled via role assignments (Key Vault Secrets User)
+- **GitHub Secrets**: Encrypted secrets for CI/CD pipeline
+- **Key Vault**: Centralized secret storage with audit logging
+- **No hardcoded secrets**: All credentials stored securely in Key Vault
 
 ## Prerequisites
 
