@@ -230,6 +230,25 @@ class EmailClient:
             logger.warning(f"Failed to add category to email {email_id}: {e}")
             return False
 
+    def _attempt_move(self, endpoint: str, json_data: dict, email_id: str, folder_id: str) -> bool:
+        """Attempt to move an email using the specified endpoint.
+        
+        Args:
+            endpoint: Graph API endpoint for the move operation.
+            json_data: JSON payload with destinationId.
+            email_id: Email ID for logging.
+            folder_id: Destination folder ID for logging.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+            
+        Raises:
+            requests.HTTPError: Re-raises the error for caller to handle.
+        """
+        self._make_request("POST", endpoint, json_data=json_data)
+        logger.debug(f"Moved email {email_id} to folder {folder_id}")
+        return True
+
     def move_email(
         self,
         email_id: str,
@@ -257,73 +276,55 @@ class EmailClient:
             bool: True if successful.
         """
         # Add category tag BEFORE moving to avoid 404 errors
-        if category:
-            tagged = self.add_category(email_id, category)
-            if not tagged:
-                logger.warning(
-                    f"Failed to tag email {email_id} with category '{category}', "
-                    "but continuing with move (email may be reprocessed on next run)"
-                )
+        if category and not self.add_category(email_id, category):
+            logger.warning(
+                f"Failed to tag email {email_id} with category '{category}', "
+                "but continuing with move (email may be reprocessed on next run)"
+            )
         
         safe_email_id = quote(email_id, safe="")
-        endpoint = f"/me/messages/{safe_email_id}/move"
         json_data = {"destinationId": folder_id}
 
+        # Try primary move endpoint
         try:
-            self._make_request("POST", endpoint, json_data=json_data)
-            logger.debug(f"Moved email {email_id} to folder {folder_id}")
-            return True
+            endpoint = f"/me/messages/{safe_email_id}/move"
+            return self._attempt_move(endpoint, json_data, email_id, folder_id)
         except requests.HTTPError as e:
-            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            status_code = getattr(e.response, "status_code", None) if e.response else None
+            
+            # If 404 and we have source folder, try fallback
             if status_code == 404 and source_folder_id:
                 logger.debug(
                     "Primary move returned 404; attempting fallback (email_id=%r, source_folder_id=%r)",
-                    email_id,
-                    source_folder_id,
+                    email_id, source_folder_id
                 )
                 try:
                     safe_source_folder_id = quote(source_folder_id, safe="")
-                    fallback_endpoint = (
-                        f"/me/mailFolders/{safe_source_folder_id}"
-                        f"/messages/{safe_email_id}/move"
-                    )
-                    self._make_request("POST", fallback_endpoint, json_data=json_data)
-                    logger.debug(
-                        "Moved email %s to folder %s using fallback (source_folder_id=%s)",
-                        email_id,
-                        folder_id,
-                        source_folder_id,
-                    )
-                    return True
-                except requests.HTTPError as retry_error:
-                    retry_status = getattr(
-                        getattr(retry_error, "response", None), "status_code", None
-                    )
-                    if retry_status == 404:
+                    fallback_endpoint = f"/me/mailFolders/{safe_source_folder_id}/messages/{safe_email_id}/move"
+                    return self._attempt_move(fallback_endpoint, json_data, email_id, folder_id)
+                except requests.HTTPError as fallback_error:
+                    fallback_status = getattr(fallback_error.response, "status_code", None) if fallback_error.response else None
+                    if fallback_status == 404:
                         logger.warning(
                             "Message not found (404) on both primary and fallback move; "
                             "likely already moved or deleted (email_id=%s, source_folder_id=%s)",
-                            email_id,
-                            source_folder_id,
+                            email_id, source_folder_id
                         )
                     else:
                         logger.error(
                             "Failed to move email %s (fallback) to folder %s: %s",
-                            email_id,
-                            folder_id,
-                            retry_error,
+                            email_id, folder_id, fallback_error
                         )
                     return False
-
+            
+            # Handle 404 without fallback or other errors
             if status_code == 404:
                 logger.warning(
                     "Message not found (404) on primary move; no source_folder_id for fallback "
-                    "(email_id=%s). Likely already moved or deleted.",
-                    email_id,
+                    "(email_id=%s). Likely already moved or deleted.", email_id
                 )
-                return False
-
-            logger.error(f"Failed to move email {email_id}: {e}")
+            else:
+                logger.error(f"Failed to move email {email_id}: {e}")
             return False
 
     def get_folders(self, include_children: bool = True) -> list[Folder]:

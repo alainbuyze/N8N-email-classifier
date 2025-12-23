@@ -99,22 +99,22 @@ explicit_source_folder = bool(...)  # Used once, then overridden
 
 ## Proposed Refactoring
 
-### Priority 1: Critical Fixes (Low Risk)
+### Priority 1: Critical Fixes (Low Risk) ✅ COMPLETED
 
-1. Remove dead code (skip_categorized logic)
-2. Handle category tagging failure
-3. Define category name as constant
+1. ✅ Remove dead code (skip_categorized logic)
+2. ✅ Handle category tagging failure
+3. ✅ Define category name as constant
 
-### Priority 2: Simplification (Medium Risk)
+### Priority 2: Simplification (Medium Risk) ✅ COMPLETED
 
-1. Simplify move_email error handling
-2. Remove duplicate URL encoding
-3. Clean up unused variables
+1. ✅ Simplify move_email error handling - Extracted `_attempt_move` helper method
+2. ✅ Simplified error handling - Reduced nested try-catch complexity
+3. ✅ Clean up unused variables - Removed `source_folder` variable
 
-### Priority 3: Performance (Low Priority)
+### Priority 3: Performance (Low Priority) - NOT IMPLEMENTED
 
-1. Optimize folder fetching
-2. Add caching for frequently accessed data
+1. ⏸️ Optimize folder fetching - Current implementation is adequate
+2. ⏸️ Add caching for frequently accessed data - Not needed at current scale
 
 ---
 

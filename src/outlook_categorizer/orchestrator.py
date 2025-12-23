@@ -194,7 +194,6 @@ class EmailOrchestrator:
         """
         batch_size = limit or self.settings.email_batch_size
         target_folder_id = folder_id or self.settings.inbox_folder_id
-        source_folder: Optional[str] = None
 
         logger.info(f"Starting email categorization (batch_size={batch_size})")
 
@@ -207,14 +206,12 @@ class EmailOrchestrator:
                 raise ValueError(f"Folder label not found: {folder_label}")
 
             target_folder_id = resolved.id
-            source_folder = folder_label
             logger.info(
                 "Fetching emails from folder_label=%s (folder_id=%s)",
                 folder_label,
                 target_folder_id,
             )
         elif target_folder_id:
-            source_folder = f"folder_id={target_folder_id}"
             logger.info(f"Fetching emails from folder_id={target_folder_id}")
         else:
             logger.info("Fetching emails from Inbox (default)")
@@ -238,8 +235,8 @@ class EmailOrchestrator:
             )
             folder_ids = [f.id for f in folders]
             logger.info(
-                "Including subfolders for source=%s (folders=%s)",
-                source_folder or target_folder_id,
+                "Including subfolders for folder_label=%s (total folders=%s)",
+                folder_label,
                 len(folder_ids),
             )
 
