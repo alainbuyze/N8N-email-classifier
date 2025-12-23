@@ -6,23 +6,27 @@ Objective:
     access token that can be attached to HTTP requests.
 
 Responsibilities:
-    - Manage MSAL ``PublicClientApplication`` lifecycle.
+    - Manage MSAL ``PublicClientApplication`` or ``ConfidentialClientApplication`` lifecycle.
     - Persist and reload the MSAL token cache to/from disk.
     - Perform interactive device-code authentication when no cached token is
-      available.
+      available (delegated permissions).
+    - Perform client credentials authentication for unattended scenarios
+      (application permissions).
     - Provide ready-to-use HTTP headers for Graph API calls.
 
 High-level call tree:
     - :class:`GraphAuthenticator`
         - :meth:`GraphAuthenticator.get_auth_headers`
             - :meth:`GraphAuthenticator.get_access_token`
+                - :meth:`GraphAuthenticator._get_token_client_credentials` (if client secret provided)
+                - :meth:`GraphAuthenticator._get_token_device_code` (fallback for delegated)
                 - :meth:`GraphAuthenticator._get_app`
                     - :meth:`GraphAuthenticator._load_token_cache`
-                - MSAL silent token acquisition
-                - Device code flow fallback
                 - :meth:`GraphAuthenticator._save_token_cache`
 
 Operational notes:
+    - Client credentials flow is used when AZURE_CLIENT_SECRET is set.
+      This requires application permissions in Azure AD.
     - Device-code flow requires user interaction (copy/paste code in browser).
       When running as CLI or in a container, the prompt will be printed to
       stdout.
@@ -47,11 +51,13 @@ class GraphAuthenticator:
     """
     Handles Microsoft Graph API authentication using MSAL.
 
-    Uses device code flow for personal Microsoft accounts (delegated permissions).
+    Supports two authentication modes:
+    1. Client credentials flow (application permissions) - for unattended scenarios
+    2. Device code flow (delegated permissions) - for interactive scenarios
 
     Attributes:
         settings: Application settings containing Azure AD credentials.
-        _app: MSAL public client application instance.
+        _app: MSAL public or confidential client application instance.
         _account: Cached user account.
     """
 
@@ -59,6 +65,11 @@ class GraphAuthenticator:
     GRAPH_SCOPES = [
         "https://graph.microsoft.com/Mail.ReadWrite",
         "https://graph.microsoft.com/Mail.Send",
+    ]
+    
+    # Application scopes for client credentials flow
+    GRAPH_APP_SCOPES = [
+        "https://graph.microsoft.com/.default",
     ]
 
     def __init__(self, settings: Settings) -> None:
@@ -69,8 +80,9 @@ class GraphAuthenticator:
             settings: Application settings with Azure AD credentials.
         """
         self.settings = settings
-        self._app: Optional[msal.PublicClientApplication] = None
+        self._app: Optional[msal.PublicClientApplication | msal.ConfidentialClientApplication] = None
         self._account: Optional[dict] = None
+        self._use_client_credentials = bool(settings.azure_client_secret)
 
     def _load_token_cache(self) -> msal.SerializableTokenCache:
         """
@@ -108,27 +120,39 @@ class GraphAuthenticator:
             except Exception as e:
                 logger.warning(f"Failed to save token cache: {e}")
 
-    def _get_app(self) -> msal.PublicClientApplication:
+    def _get_app(self) -> msal.PublicClientApplication | msal.ConfidentialClientApplication:
         """
-        Get or create MSAL public client application.
+        Get or create MSAL client application.
+
+        Creates either a ConfidentialClientApplication (for client credentials)
+        or PublicClientApplication (for device code flow) based on whether
+        a client secret is configured.
 
         The application is configured with:
         - The tenant authority derived from settings.
-        - The persistent token cache.
+        - The persistent token cache (for public client only).
 
         Returns:
-            msal.PublicClientApplication: MSAL app instance.
+            msal.PublicClientApplication | msal.ConfidentialClientApplication: MSAL app instance.
         """
         if self._app is None:
             authority = f"https://login.microsoftonline.com/{self.settings.azure_tenant_id}"
-            cache = self._load_token_cache()
-
-            self._app = msal.PublicClientApplication(
-                client_id=self.settings.azure_client_id,
-                authority=authority,
-                token_cache=cache,
-            )
-            logger.debug("Created MSAL public client application")
+            
+            if self._use_client_credentials:
+                self._app = msal.ConfidentialClientApplication(
+                    client_id=self.settings.azure_client_id,
+                    client_credential=self.settings.azure_client_secret,
+                    authority=authority,
+                )
+                logger.debug("Created MSAL confidential client application (client credentials flow)")
+            else:
+                cache = self._load_token_cache()
+                self._app = msal.PublicClientApplication(
+                    client_id=self.settings.azure_client_id,
+                    authority=authority,
+                    token_cache=cache,
+                )
+                logger.debug("Created MSAL public client application (device code flow)")
         return self._app
 
     def _select_account(self, accounts: list[dict]) -> Optional[dict]:
@@ -168,16 +192,12 @@ class GraphAuthenticator:
             f"preferred={preferred!r} available={available!r}"
         )
 
-    def get_access_token(self) -> str:
+    def _get_token_client_credentials(self) -> str:
         """
-        Acquire access token for Microsoft Graph API.
+        Acquire access token using client credentials flow.
 
-        Strategy:
-            1. Try silent token acquisition using the MSAL cache.
-            2. If that fails (no cached token, expired refresh token, etc.),
-               fall back to device-code flow.
-
-        Tokens are cached and reused until expiration.
+        This is used for unattended scenarios where the app runs with
+        application permissions (not delegated permissions).
 
         Returns:
             str: Valid access token for Graph API.
@@ -186,7 +206,33 @@ class GraphAuthenticator:
             RuntimeError: If token acquisition fails.
         """
         app = self._get_app()
+        logger.debug("Acquiring token using client credentials flow...")
+        
+        result = app.acquire_token_for_client(scopes=self.GRAPH_APP_SCOPES)
+        
+        if "access_token" in result:
+            logger.debug("Successfully acquired token via client credentials")
+            return result["access_token"]
+        
+        error_description = result.get("error_description", "Unknown error")
+        error = result.get("error", "unknown")
+        logger.error(f"Failed to acquire token: {error} - {error_description}")
+        raise RuntimeError(f"Failed to acquire access token: {error_description}")
+    
+    def _get_token_device_code(self) -> str:
+        """
+        Acquire access token using device code flow.
 
+        This is used for interactive scenarios with delegated permissions.
+
+        Returns:
+            str: Valid access token for Graph API.
+
+        Raises:
+            RuntimeError: If token acquisition fails.
+        """
+        app = self._get_app()
+        
         # Try to get token from cache first
         accounts = app.get_accounts()
         if accounts:
@@ -228,6 +274,29 @@ class GraphAuthenticator:
         error = result.get("error", "unknown")
         logger.error(f"Failed to acquire token: {error} - {error_description}")
         raise RuntimeError(f"Failed to acquire access token: {error_description}")
+    
+    def get_access_token(self) -> str:
+        """
+        Acquire access token for Microsoft Graph API.
+
+        Strategy:
+            1. If client secret is configured, use client credentials flow.
+            2. Otherwise, try silent token acquisition using the MSAL cache.
+            3. If that fails (no cached token, expired refresh token, etc.),
+               fall back to device-code flow.
+
+        Tokens are cached and reused until expiration.
+
+        Returns:
+            str: Valid access token for Graph API.
+
+        Raises:
+            RuntimeError: If token acquisition fails.
+        """
+        if self._use_client_credentials:
+            return self._get_token_client_credentials()
+        else:
+            return self._get_token_device_code()
 
     def get_auth_headers(self) -> dict[str, str]:
         """

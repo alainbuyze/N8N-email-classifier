@@ -94,6 +94,9 @@ class Settings(BaseSettings):
 
     # Azure AD Configuration
     azure_client_id: str = Field(..., description="Azure AD application client ID")
+    azure_client_secret: Optional[str] = Field(
+        default=None, description="Azure AD application client secret (for client credentials flow)"
+    )
     azure_tenant_id: str = Field(
         default="consumers", description="Azure AD tenant ID (consumers for personal accounts)"
     )
@@ -103,6 +106,22 @@ class Settings(BaseSettings):
         description=(
             "Preferred Outlook account username to select from the MSAL token cache. "
             "If omitted, the first cached account is used."
+        ),
+    )
+    
+    use_client_credentials: bool = Field(
+        default=False,
+        description=(
+            "Use client credentials flow instead of device code flow. "
+            "Automatically enabled when AZURE_CLIENT_SECRET is set."
+        ),
+    )
+    
+    target_user_principal_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "User principal name (email) for the mailbox to access when using "
+            "client credentials flow. Required when using application permissions."
         ),
     )
 

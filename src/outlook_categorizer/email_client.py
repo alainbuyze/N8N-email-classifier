@@ -75,6 +75,15 @@ class EmailClient:
         """
         self.settings = settings
         self.auth = auth
+        
+        # Determine base path for API calls
+        # Use /users/{upn} for client credentials, /me for delegated permissions
+        if settings.azure_client_secret and settings.target_user_principal_name:
+            self._user_path = f"/users/{settings.target_user_principal_name}"
+            logger.debug(f"Using application permissions for user: {settings.target_user_principal_name}")
+        else:
+            self._user_path = "/me"
+            logger.debug("Using delegated permissions (/me endpoint)")
 
     def _make_request(
         self,
@@ -166,9 +175,9 @@ class EmailClient:
         # Build endpoint
         if folder_id:
             safe_folder_id = quote(folder_id, safe="")
-            endpoint = f"/me/mailFolders/{safe_folder_id}/messages"
+            endpoint = f"{self._user_path}/mailFolders/{safe_folder_id}/messages"
         else:
-            endpoint = "/me/mailFolders/inbox/messages"
+            endpoint = f"{self._user_path}/mailFolders/inbox/messages"
 
         # Build filter
         filters = []
@@ -219,7 +228,7 @@ class EmailClient:
             bool: True if successful.
         """
         safe_email_id = quote(email_id, safe="")
-        endpoint = f"/me/messages/{safe_email_id}"
+        endpoint = f"{self._user_path}/messages/{safe_email_id}"
         json_data = {"categories": [category]}
 
         try:
@@ -287,7 +296,7 @@ class EmailClient:
 
         # Try primary move endpoint
         try:
-            endpoint = f"/me/messages/{safe_email_id}/move"
+            endpoint = f"{self._user_path}/messages/{safe_email_id}/move"
             return self._attempt_move(endpoint, json_data, email_id, folder_id)
         except requests.HTTPError as e:
             status_code = getattr(e.response, "status_code", None) if e.response else None
@@ -300,7 +309,7 @@ class EmailClient:
                 )
                 try:
                     safe_source_folder_id = quote(source_folder_id, safe="")
-                    fallback_endpoint = f"/me/mailFolders/{safe_source_folder_id}/messages/{safe_email_id}/move"
+                    fallback_endpoint = f"{self._user_path}/mailFolders/{safe_source_folder_id}/messages/{safe_email_id}/move"
                     return self._attempt_move(fallback_endpoint, json_data, email_id, folder_id)
                 except requests.HTTPError as fallback_error:
                     fallback_status = getattr(fallback_error.response, "status_code", None) if fallback_error.response else None
@@ -340,7 +349,7 @@ class EmailClient:
         Returns:
             list[Folder]: List of folder objects.
         """
-        endpoint = "/me/mailFolders"
+        endpoint = f"{self._user_path}/mailFolders"
         params = {
             "$top": 100,
             "$select": "id,displayName,parentFolderId,childFolderCount",
@@ -376,7 +385,7 @@ class EmailClient:
         Returns:
             list[Folder]: List of child folders.
         """
-        endpoint = f"/me/mailFolders/{parent_folder_id}/childFolders"
+        endpoint = f"{self._user_path}/mailFolders/{parent_folder_id}/childFolders"
         params = {
             "$top": 100,
             "$select": "id,displayName,parentFolderId,childFolderCount",
@@ -415,9 +424,9 @@ class EmailClient:
             Optional[Folder]: Created folder, or None if failed.
         """
         if parent_folder_id:
-            endpoint = f"/me/mailFolders/{parent_folder_id}/childFolders"
+            endpoint = f"{self._user_path}/mailFolders/{parent_folder_id}/childFolders"
         else:
-            endpoint = "/me/mailFolders"
+            endpoint = f"{self._user_path}/mailFolders"
 
         json_data = {"displayName": display_name}
 
