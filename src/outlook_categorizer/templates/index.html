@@ -14,14 +14,16 @@
       .row > div { flex: 1; }
       .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
       button { padding: 10px 14px; border: 0; border-radius: 6px; background: #111827; color: white; cursor: pointer; }
+      button:disabled { background: #9ca3af; cursor: not-allowed; }
       .hint { color: #6b7280; font-size: 0.9rem; margin-top: 6px; }
+      .loading { display: none; color: #2563eb; font-weight: 600; }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>Outlook Email Categorizer</h1>
       <div class="card">
-        <form method="post" action="/run">
+        <form method="post" action="/run" id="categorizerForm">
           <div class="row">
             <div>
               <label for="limit">Limit</label>
@@ -39,7 +41,8 @@
               <input name="dry_run" type="checkbox" value="true" />
               Dry run (do not move emails)
             </label>
-            <button type="submit">Run</button>
+            <button type="submit" id="submitBtn">Run</button>
+            <span class="loading" id="loadingMsg">Processing emails...</span>
           </div>
         </form>
       </div>
@@ -48,5 +51,20 @@
         API: POST /api/run with JSON {"limit": 5, "folder_label": "Inbox/Boss", "dry_run": true}
       </p>
     </div>
+    
+    <script>
+      // Prevent double submission by disabling button and showing loading state
+      document.getElementById('categorizerForm').addEventListener('submit', function(e) {
+        const btn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loadingMsg');
+        
+        // Disable button to prevent double-click
+        btn.disabled = true;
+        btn.textContent = 'Processing...';
+        
+        // Show loading message
+        loading.style.display = 'inline';
+      });
+    </script>
   </body>
 </html>
