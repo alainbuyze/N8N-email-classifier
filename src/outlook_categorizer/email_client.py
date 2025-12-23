@@ -244,17 +244,22 @@ class EmailClient:
         per-email processing error.
 
         Optionally adds a category tag to mark the email as processed, preventing
-        it from being selected again by skip_categorized filter.
+        it from being selected again by skip_categorized filter. The category is
+        added BEFORE moving to avoid 404 errors from stale email IDs after move.
 
         Args:
             email_id: ID of email to move.
             folder_id: Destination folder ID.
             source_folder_id: Source folder ID for fallback.
-            category: Optional category name to add after moving.
+            category: Optional category name to add before moving.
 
         Returns:
             bool: True if successful.
         """
+        # Add category tag BEFORE moving to avoid 404 errors
+        if category:
+            self.add_category(email_id, category)
+        
         safe_email_id = quote(email_id, safe="")
         endpoint = f"/me/messages/{safe_email_id}/move"
         json_data = {"destinationId": folder_id}
@@ -262,11 +267,6 @@ class EmailClient:
         try:
             self._make_request("POST", endpoint, json_data=json_data)
             logger.debug(f"Moved email {email_id} to folder {folder_id}")
-            
-            # Add category tag to mark as processed
-            if category:
-                self.add_category(email_id, category)
-            
             return True
         except requests.HTTPError as e:
             status_code = getattr(getattr(e, "response", None), "status_code", None)
@@ -289,11 +289,6 @@ class EmailClient:
                         folder_id,
                         source_folder_id,
                     )
-                    
-                    # Add category tag to mark as processed
-                    if category:
-                        self.add_category(email_id, category)
-                    
                     return True
                 except requests.HTTPError as retry_error:
                     retry_status = getattr(
