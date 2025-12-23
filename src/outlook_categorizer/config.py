@@ -26,10 +26,15 @@ Operational notes:
 
 from enum import Enum
 from typing import Optional
+import logging
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
+# Category tag applied to processed emails to prevent reprocessing
+CATEGORIZED_TAG = "Categorized"
 
 class EmailCategory(str, Enum):
     """Canonical set of categories used by the system.

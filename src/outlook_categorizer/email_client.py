@@ -258,7 +258,12 @@ class EmailClient:
         """
         # Add category tag BEFORE moving to avoid 404 errors
         if category:
-            self.add_category(email_id, category)
+            tagged = self.add_category(email_id, category)
+            if not tagged:
+                logger.warning(
+                    f"Failed to tag email {email_id} with category '{category}', "
+                    "but continuing with move (email may be reprocessed on next run)"
+                )
         
         safe_email_id = quote(email_id, safe="")
         endpoint = f"/me/messages/{safe_email_id}/move"

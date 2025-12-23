@@ -39,7 +39,7 @@ from typing import Optional
 
 from .auth import GraphAuthenticator
 from .categorizer import EmailCategorizer
-from .config import Settings, get_settings
+from .config import Settings, get_settings, CATEGORIZED_TAG
 from .email_client import EmailClient
 from .folder_manager import FolderManager
 from .models import Email, ProcessingResult
@@ -133,7 +133,7 @@ class EmailOrchestrator:
                 email.id,
                 folder.id,
                 source_folder_id=email.parent_folder_id,
-                category="Categorized",
+                category=CATEGORIZED_TAG,
             )
 
             return ProcessingResult(
@@ -194,10 +194,7 @@ class EmailOrchestrator:
         """
         batch_size = limit or self.settings.email_batch_size
         target_folder_id = folder_id or self.settings.inbox_folder_id
-
         source_folder: Optional[str] = None
-        explicit_source_folder = bool(folder_label or folder_id or self.settings.inbox_folder_id)
-        skip_categorized = not explicit_source_folder
 
         logger.info(f"Starting email categorization (batch_size={batch_size})")
 
