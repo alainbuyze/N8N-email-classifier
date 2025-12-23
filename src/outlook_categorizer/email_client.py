@@ -202,11 +202,40 @@ class EmailClient:
         logger.debug(f"Fetched {len(emails)} emails")
         return emails
 
+    def add_category(
+        self,
+        email_id: str,
+        category: str,
+    ) -> bool:
+        """Add a category tag to an email.
+
+        This marks the email as categorized so it can be skipped in future runs.
+
+        Args:
+            email_id: ID of email to tag.
+            category: Category name to add.
+
+        Returns:
+            bool: True if successful.
+        """
+        safe_email_id = quote(email_id, safe="")
+        endpoint = f"/me/messages/{safe_email_id}"
+        json_data = {"categories": [category]}
+
+        try:
+            self._make_request("PATCH", endpoint, json_data=json_data)
+            logger.debug(f"Added category '{category}' to email {email_id}")
+            return True
+        except requests.HTTPError as e:
+            logger.warning(f"Failed to add category to email {email_id}: {e}")
+            return False
+
     def move_email(
         self,
         email_id: str,
         folder_id: str,
         source_folder_id: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> bool:
         """Move an email to a different folder.
 
@@ -214,9 +243,14 @@ class EmailClient:
         ``False`` (rather than raising) since move failures are treated as a
         per-email processing error.
 
+        Optionally adds a category tag to mark the email as processed, preventing
+        it from being selected again by skip_categorized filter.
+
         Args:
             email_id: ID of email to move.
             folder_id: Destination folder ID.
+            source_folder_id: Source folder ID for fallback.
+            category: Optional category name to add after moving.
 
         Returns:
             bool: True if successful.
@@ -228,6 +262,11 @@ class EmailClient:
         try:
             self._make_request("POST", endpoint, json_data=json_data)
             logger.debug(f"Moved email {email_id} to folder {folder_id}")
+            
+            # Add category tag to mark as processed
+            if category:
+                self.add_category(email_id, category)
+            
             return True
         except requests.HTTPError as e:
             status_code = getattr(getattr(e, "response", None), "status_code", None)
@@ -250,6 +289,11 @@ class EmailClient:
                         folder_id,
                         source_folder_id,
                     )
+                    
+                    # Add category tag to mark as processed
+                    if category:
+                        self.add_category(email_id, category)
+                    
                     return True
                 except requests.HTTPError as retry_error:
                     retry_status = getattr(

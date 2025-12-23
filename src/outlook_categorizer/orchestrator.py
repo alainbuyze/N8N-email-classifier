@@ -128,11 +128,12 @@ class EmailOrchestrator:
                     error="Failed to get/create destination folder",
                 )
 
-            # Move email to folder
+            # Move email to folder and tag with category to prevent reprocessing
             moved = self.email_client.move_email(
                 email.id,
                 folder.id,
                 source_folder_id=email.parent_folder_id,
+                category="Categorized",
             )
 
             return ProcessingResult(
