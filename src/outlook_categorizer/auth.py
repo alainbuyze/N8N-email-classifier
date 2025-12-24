@@ -324,7 +324,10 @@ class GraphAuthenticator:
         """
 
         app = self._get_app()
-        return app.acquire_token_by_device_flow(flow)
+        result = app.acquire_token_by_device_flow(flow)
+        if "access_token" in result:
+            self._save_token_cache(app.token_cache)
+        return result
     
     def _get_token_device_code(self) -> str:
         """
