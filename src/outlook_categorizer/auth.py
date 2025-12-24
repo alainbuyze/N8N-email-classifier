@@ -40,6 +40,7 @@ from typing import Optional
 import msal
 
 from .config import Settings
+from .token_cache_blob import BlobTokenCacheLocation, BlobTokenCacheStore, is_valid_msal_cache_json
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,24 @@ class GraphAuthenticator:
         self.settings = settings
         self._app: Optional[msal.PublicClientApplication | msal.ConfidentialClientApplication] = None
         self._account: Optional[dict] = None
-        self._use_client_credentials = bool(settings.azure_client_secret)
+        self._use_client_credentials = bool(settings.use_client_credentials)
+        self._blob_cache: Optional[BlobTokenCacheStore] = None
+        if self.settings.token_cache_backend == "azure_blob":
+            account_url = (self.settings.token_cache_blob_account_url or "").strip()
+            container = (self.settings.token_cache_blob_container or "").strip()
+            blob_name = (self.settings.token_cache_blob_name or "").strip()
+            if account_url and container and blob_name:
+                self._blob_cache = BlobTokenCacheStore(
+                    BlobTokenCacheLocation(
+                        account_url=account_url,
+                        container_name=container,
+                        blob_name=blob_name,
+                    )
+                )
+            else:
+                logger.warning(
+                    "token_cache_backend=azure_blob but blob settings are incomplete; falling back to file cache"
+                )
 
     def _load_token_cache(self) -> msal.SerializableTokenCache:
         """
@@ -95,6 +113,17 @@ class GraphAuthenticator:
             msal.SerializableTokenCache: Token cache instance.
         """
         cache = msal.SerializableTokenCache()
+
+        if self._blob_cache is not None:
+            try:
+                payload, _etag = self._blob_cache.download()
+                if payload and is_valid_msal_cache_json(payload):
+                    cache.deserialize(payload)
+                    logger.debug("Loaded token cache from Azure Blob")
+                    return cache
+            except Exception as e:
+                logger.warning(f"Failed to load token cache from Azure Blob: {e}")
+
         if TOKEN_CACHE_FILE.exists():
             try:
                 cache.deserialize(TOKEN_CACHE_FILE.read_text())
@@ -115,7 +144,18 @@ class GraphAuthenticator:
         """
         if cache.has_state_changed:
             try:
-                TOKEN_CACHE_FILE.write_text(cache.serialize())
+                payload = cache.serialize()
+
+                if self._blob_cache is not None:
+                    existing, etag = self._blob_cache.download()
+                    # Reason: If blob contains invalid data, treat as missing
+                    if existing and not is_valid_msal_cache_json(existing):
+                        etag = None
+                    self._blob_cache.upload(payload, etag=etag)
+                    logger.debug("Saved token cache to Azure Blob")
+                    return
+
+                TOKEN_CACHE_FILE.write_text(payload)
                 logger.debug("Saved token cache to file")
             except Exception as e:
                 logger.warning(f"Failed to save token cache: {e}")
@@ -139,6 +179,10 @@ class GraphAuthenticator:
             authority = f"https://login.microsoftonline.com/{self.settings.azure_tenant_id}"
             
             if self._use_client_credentials:
+                if not self.settings.azure_client_secret:
+                    raise RuntimeError(
+                        "use_client_credentials=true requires AZURE_CLIENT_SECRET to be set"
+                    )
                 self._app = msal.ConfidentialClientApplication(
                     client_id=self.settings.azure_client_id,
                     client_credential=self.settings.azure_client_secret,

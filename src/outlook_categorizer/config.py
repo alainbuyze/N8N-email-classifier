@@ -113,7 +113,7 @@ class Settings(BaseSettings):
         default=False,
         description=(
             "Use client credentials flow instead of device code flow. "
-            "Automatically enabled when AZURE_CLIENT_SECRET is set."
+            "Requires an organizational tenant (not 'consumers')."
         ),
     )
     
@@ -125,10 +125,31 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Token cache persistence (Azure)
+    token_cache_backend: str = Field(
+        default="file",
+        description=(
+            "Token cache backend. 'file' stores cache on local filesystem. "
+            "'azure_blob' stores cache JSON in Azure Blob Storage (recommended for Azure Container Apps)."
+        ),
+    )
+    token_cache_blob_account_url: Optional[str] = Field(
+        default=None,
+        description="Azure Storage account URL, e.g. https://<account>.blob.core.windows.net",
+    )
+    token_cache_blob_container: Optional[str] = Field(
+        default=None,
+        description="Azure Blob container name for MSAL token cache",
+    )
+    token_cache_blob_name: str = Field(
+        default="msal_token_cache.json",
+        description="Azure Blob name for MSAL token cache",
+    )
+
     # Groq Configuration
     groq_api_key: str = Field(..., description="Groq API key")
     groq_model: str = Field(
-        default="llama-3.1-70b-versatile", description="Groq model name"
+        default="openai/gpt-oss-120b", description="Groq model name"
     )
 
     # Categorization Settings

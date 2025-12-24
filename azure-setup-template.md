@@ -501,6 +501,44 @@ az role assignment create \
   --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.KeyVault/vaults/$KEYVAULT_NAME"
 ```
 
+### 1.8.1 Configure Container App to pull images from ACR
+
+Container Apps must authenticate to your ACR to pull private images. If you enabled ACR admin user, you can configure the Container App registry credentials directly:
+
+**PowerShell:**
+
+```powershell
+# Configure ACR pull credentials (uses ACR admin user)
+$ACR_LOGIN_SERVER = "$ACR_NAME.azurecr.io"
+$ACR_USERNAME = $ACR_NAME
+$ACR_PASSWORD = (az acr credential show --name $ACR_NAME --query "passwords[0].value" -o tsv)
+
+az containerapp registry set `
+  --name $CONTAINER_APP_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --server $ACR_LOGIN_SERVER `
+  --username $ACR_USERNAME `
+  --password $ACR_PASSWORD
+```
+
+**Bash:**
+
+```bash
+# Configure ACR pull credentials (uses ACR admin user)
+ACR_LOGIN_SERVER="$ACR_NAME.azurecr.io"
+ACR_USERNAME=$ACR_NAME
+ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query "passwords[0].value" -o tsv)
+
+az containerapp registry set \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --server $ACR_LOGIN_SERVER \
+  --username $ACR_USERNAME \
+  --password $ACR_PASSWORD
+```
+
+**Note**: Without this step you may see `ImagePullUnauthorized` events.
+
 ### 1.9 Configure Secrets in Container App
 
 **PowerShell:**
@@ -550,6 +588,20 @@ az containerapp update \
     AZURE_CLIENT_ID=secretref:azure-client-id \
     AZURE_CLIENT_SECRET=secretref:azure-client-secret
 ```
+
+## Important notes (learned during real deployment)
+
+- **ACR image pulls require auth**
+  The Container App must be able to pull from your private ACR. If this is not configured, you will see system events like:
+  - `ImagePullUnauthorized`
+  - `ImagePullFailure`
+  and the public URL may show `404 - This Container App is stopped or does not exist`.
+
+- **Scale-to-zero can hide startup issues**
+  With `minReplicas: 0`, the app may remain at 0 replicas unless traffic arrives, and it can be harder to capture startup logs. For debugging, temporarily set `minReplicas: 1`.
+
+- **Personal Microsoft accounts (`AZURE_TENANT_ID=consumers`) cannot use client credentials flow**
+  Device code flow requires user interaction. For Azure, use **Option A** (persist token cache on a mounted volume) if you want to keep using a personal account.
 
 ## Step 2: Configure GitHub Actions
 
@@ -617,6 +669,17 @@ GitHub Actions will automatically:
 
 - Go to GitHub → Actions tab to watch the workflow
 - Check Azure Portal → Container Apps → your app → Logs
+
+### 3.2.1 Verify image exists in ACR
+
+**PowerShell:**
+
+```powershell
+az acr repository list --name $ACR_NAME -o table
+az acr repository show-tags --name $ACR_NAME --repository outlook-categorizer --output table
+```
+
+If `show-tags` fails with `repository not found`, your GitHub Actions run likely did not push the image.
 
 ### 3.3 Access Your App
 
@@ -718,6 +781,133 @@ az containerapp logs show --name $CONTAINER_APP_NAME --resource-group $RESOURCE_
 # Check revision status
 az containerapp revision list --name $CONTAINER_APP_NAME --resource-group $RESOURCE_GROUP -o table
 ```
+
+### The app URL returns `404 - stopped or does not exist`
+
+This often means **no healthy replicas are running**. Common causes:
+
+- **Image pull auth failure**
+  Check system logs for:
+  - `ImagePullUnauthorized`
+  - `ImagePullFailure`
+
+  ```powershell
+  az containerapp logs show `
+    --name $CONTAINER_APP_NAME `
+    --resource-group $RESOURCE_GROUP `
+    --type system `
+    --tail 200
+  ```
+
+- **Scale-to-zero + no traffic**
+  For debugging, force a replica:
+
+  ```powershell
+  az containerapp update `
+    --name $CONTAINER_APP_NAME `
+    --resource-group $RESOURCE_GROUP `
+    --min-replicas 1 `
+    --max-replicas 3
+  ```
+
+### App page loads but stays on “Processing…” for a long time
+
+This can happen if the app is waiting for device-code authentication.
+
+```powershell
+az containerapp logs show `
+  --name $CONTAINER_APP_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --follow
+```
+
+If you see:
+`To sign in, use a web browser to open the page https://www.microsoft.com/link and enter the code ...`
+then the container is blocked on interactive login.
+
+## Option A (recommended for personal Microsoft accounts): Persist the MSAL token cache in Azure Blob Storage (ETag-safe)
+
+If you use `AZURE_TENANT_ID=consumers`, you must use delegated/device-code flow. In Azure Container Apps, the container filesystem is ephemeral, so you need persistent storage for the MSAL token cache.
+
+This project supports persisting the MSAL cache JSON in **Azure Blob Storage** using **ETag-based optimistic concurrency** (safe when multiple replicas exist).
+
+### 1) Create Storage Account + Container
+
+**PowerShell:**
+
+```powershell
+$STORAGE_ACCOUNT_NAME = "outlookclassifierstore"  # e.g. outlookcattokencache01
+$BLOB_CONTAINER_NAME = "token-cache"
+
+az storage account create `
+  --name $STORAGE_ACCOUNT_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --location $LOCATION `
+  --sku Standard_LRS `
+  --kind StorageV2
+
+az storage container create `
+  --name $BLOB_CONTAINER_NAME `
+  --account-name $STORAGE_ACCOUNT_NAME `
+  --auth-mode login
+```
+
+### 2) Grant Container App managed identity access to the container
+
+Get the Container App principal id:
+
+```powershell
+$IDENTITY_ID = az containerapp show `
+  --name $CONTAINER_APP_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --query identity.principalId -o tsv
+```
+
+Assign RBAC on the storage account scope:
+
+```powershell
+$SUBSCRIPTION_ID = az account show --query id -o tsv
+$STORAGE_SCOPE = "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$STORAGE_ACCOUNT_NAME"
+
+az role assignment create `
+  --assignee $IDENTITY_ID `
+  --role "Storage Blob Data Contributor" `
+  --scope $STORAGE_SCOPE
+```
+
+### 3) Configure Container App environment variables
+
+Set these env vars (no secrets required for blob when using Managed Identity):
+
+```powershell
+$ACCOUNT_URL = "https://$STORAGE_ACCOUNT_NAME.blob.core.windows.net"
+
+az containerapp update `
+  --name $CONTAINER_APP_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --set-env-vars `
+    TOKEN_CACHE_BACKEND=azure_blob `
+    TOKEN_CACHE_BLOB_ACCOUNT_URL=$ACCOUNT_URL `
+    TOKEN_CACHE_BLOB_CONTAINER=$BLOB_CONTAINER_NAME `
+    TOKEN_CACHE_BLOB_NAME=msal_token_cache.json
+```
+
+### 4) Authenticate once (device code)
+
+After redeploy/restart, tail logs and complete the device-code sign-in once:
+
+```powershell
+az containerapp logs show `
+  --name $CONTAINER_APP_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --follow
+```
+
+The token cache will be saved to Blob and reused across restarts.
+
+### Cost note
+
+Azure Blob Storage has **recurring costs** (storage + transactions). For this use case the blob is tiny (KBs), so costs are typically low. Use **Standard_LRS** for the lowest cost.
 
 ### Secrets not loading
 

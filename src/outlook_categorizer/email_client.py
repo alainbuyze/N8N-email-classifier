@@ -78,7 +78,7 @@ class EmailClient:
         
         # Determine base path for API calls
         # Use /users/{upn} for client credentials, /me for delegated permissions
-        if settings.azure_client_secret and settings.target_user_principal_name:
+        if settings.use_client_credentials and settings.target_user_principal_name:
             self._user_path = f"/users/{settings.target_user_principal_name}"
             logger.debug(f"Using application permissions for user: {settings.target_user_principal_name}")
         else:

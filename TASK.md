@@ -32,12 +32,15 @@
 - [x] When a source folder is explicitly selected, include emails even if they already have Outlook categories; prefer root folder for ambiguous single-name labels (2025-12-21)
 - [x] Clarified web UI source folder input and fixed results page layout horizontal overflow (2025-12-22)
 - [x] Fixed folder label resolution to reliably prefer top-level folders when duplicate names exist (prevents selecting Junk/Business instead of Business) (2025-12-22)
+- [x] Documented Azure Container Apps deployment troubleshooting steps (ACR image pull auth, revision traffic, min replicas debugging, log commands) (2025-12-23)
+- [x] Added Azure Blob Storage (ETag-safe) MSAL token cache persistence option for Azure deployments using personal Microsoft accounts (consumers) (2025-12-23)
 
 ## Discovered During Work
 - Added Pydantic models module for data validation
 - Added CLI module for command-line interface
 - Added .env.example for configuration template
 - Pytest currently failing in sanitizer and collaborator heuristic tests (unrelated to CLI entrypoint fix)
+- Personal Microsoft accounts (`AZURE_TENANT_ID=consumers`) do not support Microsoft Graph application permissions / client credentials flow; Azure deployments must use delegated auth with persisted token cache or an organizational tenant (2025-12-23)
 
 ## Future Enhancements
 - [ ] Add async support for parallel email processing
