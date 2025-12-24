@@ -34,6 +34,7 @@ Operational notes:
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -131,6 +132,8 @@ class GraphAuthenticator:
         self._account: Optional[dict] = None
         self._use_client_credentials = bool(settings.use_client_credentials)
         self._blob_cache: Optional[BlobTokenCacheStore] = None
+        self._device_flow_thread: Optional[threading.Thread] = None
+        self._device_flow_lock = threading.Lock()
         if self.settings.token_cache_backend == "azure_blob":
             account_url = (self.settings.token_cache_blob_account_url or "").strip()
             container = (self.settings.token_cache_blob_container or "").strip()
@@ -313,6 +316,39 @@ class GraphAuthenticator:
         logger.error(f"Failed to acquire token: {error} - {error_description}")
         raise RuntimeError(f"Failed to acquire access token: {error_description}")
 
+    def _start_device_flow_background(self, flow: dict[str, Any]) -> None:
+        """Start a background thread to complete device-code auth.
+
+        Args:
+            flow: MSAL device flow payload.
+        """
+
+        def worker() -> None:
+            logger.info("Background device-code worker waiting for authentication to finish.")
+            try:
+                result = self.acquire_token_by_device_flow(flow)
+                if "access_token" in result:
+                    logger.info("Device-code authentication completed; token cache updated.")
+                else:
+                    logger.warning(
+                        "Device-code authentication failed in background worker: %s - %s",
+                        result.get("error"),
+                        result.get("error_description"),
+                    )
+            except Exception as exc:
+                logger.exception("Device-code authentication background worker crashed: %s", exc)
+            finally:
+                with self._device_flow_lock:
+                    self._device_flow_thread = None
+
+        with self._device_flow_lock:
+            if self._device_flow_thread and self._device_flow_thread.is_alive():
+                logger.debug("Device-code background worker already running; skipping new thread.")
+                return
+            thread = threading.Thread(target=worker, daemon=True)
+            self._device_flow_thread = thread
+            thread.start()
+
     def acquire_token_by_device_flow(self, flow: dict[str, Any]) -> dict[str, Any]:
         """Poll the device-code flow to obtain an access token.
 
@@ -370,6 +406,7 @@ class GraphAuthenticator:
             raise RuntimeError(f"Failed to initiate device flow: {error}")
 
         if self.settings.device_code_prompt_mode == "web":
+            self._start_device_flow_background(flow)
             raise DeviceCodeAuthRequired(flow)
 
         # Display instructions to user
