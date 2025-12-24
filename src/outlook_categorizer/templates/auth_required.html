@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Authentication Required</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; }
+      .container { max-width: 900px; margin: 0 auto; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+      .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 1.2rem; background: #f3f4f6; padding: 10px 12px; border-radius: 6px; display: inline-block; }
+      a { color: #2563eb; }
+      button { padding: 10px 14px; border: 0; border-radius: 6px; background: #111827; color: white; cursor: pointer; }
+      .hint { color: #6b7280; font-size: 0.95rem; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Authentication Required</h1>
+      <div class="card">
+        <p>The app needs you to sign in to Microsoft Graph using device code authentication.</p>
+
+        <p>
+          <strong>Step 1:</strong>
+          Open
+          <a href="{{ verification_uri }}" target="_blank" rel="noreferrer">{{ verification_uri }}</a>
+        </p>
+
+        <p>
+          <strong>Step 2:</strong>
+          Enter this code:
+          <span class="code">{{ user_code }}</span>
+        </p>
+
+        {% if message %}
+          <p class="hint">{{ message }}</p>
+        {% endif %}
+
+        <form method="post" action="/auth/complete" style="margin-top:16px;">
+          <input type="hidden" name="state_id" value="{{ state_id }}" />
+          <input type="hidden" name="limit" value="{{ limit }}" />
+          <input type="hidden" name="folder_label" value="{{ folder_label }}" />
+          <input type="hidden" name="dry_run" value="{{ 'true' if dry_run else 'false' }}" />
+          <button type="submit">I have authenticated, continue</button>
+        </form>
+      </div>
+
+      <p class="hint" style="margin-top: 16px;">
+        If you close this page, you can re-run from the home page once authenticated.
+      </p>
+    </div>
+  </body>
+</html>

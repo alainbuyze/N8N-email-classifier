@@ -34,6 +34,7 @@ from typing import Optional
 try:
     from .orchestrator import EmailOrchestrator
     from .config import get_settings
+    from .auth import DeviceCodeAuthRequired
 except ImportError:  # pragma: no cover
     src_root = Path(__file__).resolve().parents[1]
     if str(src_root) not in sys.path:
@@ -41,6 +42,7 @@ except ImportError:  # pragma: no cover
 
     from outlook_categorizer.orchestrator import EmailOrchestrator
     from outlook_categorizer.config import get_settings
+    from outlook_categorizer.auth import DeviceCodeAuthRequired
 
 
 class _HttpxRequestInfoToDebugFilter(logging.Filter):
@@ -272,6 +274,20 @@ Examples:
         # Return appropriate exit code
         failed = sum(1 for r in results if not r.success)
         return 1 if failed > 0 else 0
+
+    except DeviceCodeAuthRequired as e:
+        print("\n" + "=" * 60)
+        print("AUTHENTICATION REQUIRED")
+        print("=" * 60)
+        if e.message:
+            print(f"\n{e.message}\n")
+        else:
+            print(
+                "\nTo sign in, use a web browser to open the page "
+                f"{e.verification_uri} and enter the code {e.user_code} to authenticate.\n"
+            )
+        print("=" * 60 + "\n")
+        return 1
 
     except Exception as e:
         logger.exception("Fatal error")

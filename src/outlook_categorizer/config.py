@@ -108,6 +108,14 @@ class Settings(BaseSettings):
             "If omitted, the first cached account is used."
         ),
     )
+
+    device_code_prompt_mode: str = Field(
+        default="console",
+        description=(
+            "How to surface device-code authentication instructions. "
+            "Use 'console' to print to stdout. Use 'web' to raise a structured exception so the web UI can render it."
+        ),
+    )
     
     use_client_credentials: bool = Field(
         default=False,

@@ -36,6 +36,15 @@
             </div>
           </div>
 
+          <div class="row">
+            <div>
+              <label for="target_user_principal_name">Target mailbox (UPN)</label>
+              <input id="target_user_principal_name" name="target_user_principal_name" type="text" placeholder="user@yourtenant.com (client-credentials mode)" />
+              <div class="hint">Overrides TARGET_USER_PRINCIPAL_NAME for this run (client-credentials only).</div>
+            </div>
+            <div></div>
+          </div>
+
           <div class="actions">
             <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin:0;">
               <input name="dry_run" type="checkbox" value="true" />
@@ -48,7 +57,7 @@
       </div>
 
       <p class="hint" style="margin-top: 16px;">
-        API: POST /api/run with JSON {"limit": 5, "folder_label": "Inbox/Boss", "dry_run": true}
+        API: POST /api/run with JSON {"limit": 5, "folder_label": "Inbox/Boss", "target_user_principal_name": "user@yourtenant.com", "dry_run": true}
       </p>
     </div>
     

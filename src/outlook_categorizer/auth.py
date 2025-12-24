@@ -35,7 +35,7 @@ Operational notes:
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import msal
 
@@ -46,6 +46,52 @@ logger = logging.getLogger(__name__)
 
 # Token cache file location
 TOKEN_CACHE_FILE = Path.home() / ".outlook_categorizer_token_cache.json"
+
+
+class DeviceCodeAuthRequired(RuntimeError):
+    """Raised when interactive device-code authentication is required.
+
+    Args:
+        flow: MSAL device flow payload returned by ``initiate_device_flow``.
+    """
+
+    def __init__(self, flow: dict[str, Any]) -> None:
+        super().__init__(flow.get("message") or "Device code authentication required")
+        self.flow = flow
+
+    @property
+    def user_code(self) -> str:
+        """Return the device code shown to the user.
+
+        Returns:
+            str: User code.
+        """
+
+        return str(self.flow.get("user_code", ""))
+
+    @property
+    def verification_uri(self) -> str:
+        """Return the verification URL.
+
+        Returns:
+            str: Verification URL.
+        """
+
+        return str(
+            self.flow.get("verification_uri")
+            or self.flow.get("verification_uri_complete")
+            or "https://www.microsoft.com/link"
+        )
+
+    @property
+    def message(self) -> str:
+        """Return the MSAL-generated instruction message.
+
+        Returns:
+            str: Instruction message.
+        """
+
+        return str(self.flow.get("message") or "")
 
 
 class GraphAuthenticator:
@@ -262,6 +308,19 @@ class GraphAuthenticator:
         error = result.get("error", "unknown")
         logger.error(f"Failed to acquire token: {error} - {error_description}")
         raise RuntimeError(f"Failed to acquire access token: {error_description}")
+
+    def acquire_token_by_device_flow(self, flow: dict[str, Any]) -> dict[str, Any]:
+        """Poll the device-code flow to obtain an access token.
+
+        Args:
+            flow: MSAL device flow payload from ``initiate_device_flow``.
+
+        Returns:
+            dict[str, Any]: Raw MSAL result.
+        """
+
+        app = self._get_app()
+        return app.acquire_token_by_device_flow(flow)
     
     def _get_token_device_code(self) -> str:
         """
@@ -299,6 +358,9 @@ class GraphAuthenticator:
             error = flow.get("error_description", "Unknown error")
             raise RuntimeError(f"Failed to initiate device flow: {error}")
 
+        if self.settings.device_code_prompt_mode == "web":
+            raise DeviceCodeAuthRequired(flow)
+
         # Display instructions to user
         print("\n" + "=" * 60)
         print("AUTHENTICATION REQUIRED")
@@ -307,7 +369,7 @@ class GraphAuthenticator:
         print("=" * 60 + "\n")
 
         # Wait for user to complete authentication
-        result = app.acquire_token_by_device_flow(flow)
+        result = self.acquire_token_by_device_flow(flow)
 
         if "access_token" in result:
             logger.debug("Successfully authenticated")

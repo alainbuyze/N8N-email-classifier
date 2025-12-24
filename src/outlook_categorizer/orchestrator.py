@@ -167,6 +167,7 @@ class EmailOrchestrator:
         folder_id: Optional[str] = None,
         folder_label: Optional[str] = None,
         dry_run: bool = False,
+        target_user_principal_name: Optional[str] = None,
     ) -> list[ProcessingResult]:
         """Run the email categorization workflow.
 
@@ -196,6 +197,11 @@ class EmailOrchestrator:
         target_folder_id = folder_id or self.settings.inbox_folder_id
 
         logger.info(f"Starting email categorization (batch_size={batch_size})")
+
+        # Allow per-run override of target mailbox (client-credentials mode)
+        if target_user_principal_name:
+            self.settings.target_user_principal_name = target_user_principal_name
+            logger.info(f"Using per-run target_user_principal_name={target_user_principal_name}")
 
         # Initialize folder cache (needed for label resolution and destination folders).
         self.folder_manager.initialize()

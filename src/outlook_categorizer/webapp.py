@@ -33,10 +33,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from fastapi.responses import JSONResponse
+
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from .auth import DeviceCodeAuthRequired
+from .config import get_settings
 from .orchestrator import EmailOrchestrator
 
 
@@ -51,7 +55,9 @@ def get_orchestrator() -> EmailOrchestrator:
         EmailOrchestrator: A new orchestrator instance.
     """
 
-    return EmailOrchestrator()
+    settings = get_settings()
+    settings.device_code_prompt_mode = "web"
+    return EmailOrchestrator(settings=settings)
 
 
 def create_app() -> FastAPI:
@@ -123,6 +129,7 @@ def create_app() -> FastAPI:
         limit: Optional[int] = Form(default=None),
         folder_label: Optional[str] = Form(default=None),
         dry_run: bool = Form(default=False),
+        target_user_principal_name: Optional[str] = Form(default=None),
         orchestrator: EmailOrchestrator = Depends(get_orchestrator),
     ) -> Any:
         """Run the categorizer via HTML form and render results.
@@ -135,13 +142,30 @@ def create_app() -> FastAPI:
             limit: Maximum number of emails.
             folder_label: Human-friendly source folder label or path.
             dry_run: If True, do not move emails.
+            target_user_principal_name: Override TARGET_USER_PRINCIPAL_NAME for this run.
             orchestrator: Orchestrator dependency.
 
         Returns:
             Any: Template response.
         """
 
-        results = orchestrator.run(limit=limit, folder_label=folder_label, dry_run=dry_run)
+        try:
+            results = orchestrator.run(limit=limit, folder_label=folder_label, dry_run=dry_run, target_user_principal_name=target_user_principal_name)
+        except DeviceCodeAuthRequired as e:
+            return templates.TemplateResponse(
+                "auth_required.html",
+                {
+                    "request": request,
+                    "verification_uri": e.verification_uri,
+                    "user_code": e.user_code,
+                    "message": e.message,
+                    "state_id": "",
+                    "limit": limit or "",
+                    "folder_label": folder_label or "",
+                    "dry_run": dry_run,
+                },
+                status_code=401,
+            )
 
         summary = {
             "total": len(results),
@@ -187,8 +211,20 @@ def create_app() -> FastAPI:
         limit = payload.get("limit")
         folder_label = payload.get("folder_label")
         dry_run = bool(payload.get("dry_run", False))
+        target_user_principal_name = payload.get("target_user_principal_name")
 
-        results = orchestrator.run(limit=limit, folder_label=folder_label, dry_run=dry_run)
+        try:
+            results = orchestrator.run(limit=limit, folder_label=folder_label, dry_run=dry_run, target_user_principal_name=target_user_principal_name)
+        except DeviceCodeAuthRequired as e:
+            return JSONResponse(
+                {
+                    "error": "authentication_required",
+                    "verification_uri": e.verification_uri,
+                    "user_code": e.user_code,
+                    "message": e.message,
+                },
+                status_code=401,
+            )
 
         return {
             "results": [r.model_dump() for r in results],
@@ -198,6 +234,43 @@ def create_app() -> FastAPI:
                 "failed": sum(1 for r in results if not r.success),
             },
         }
+
+    @app.post("/auth/complete", response_class=HTMLResponse)
+    def auth_complete(
+        request: Request,
+        state_id: str = Form(default=""),
+        limit: Optional[int] = Form(default=None),
+        folder_label: Optional[str] = Form(default=None),
+        dry_run: bool = Form(default=False),
+    ) -> Any:
+        """Return the user to the run page after completing device-code auth.
+
+        This endpoint intentionally does not poll the device flow because the
+        flow payload is not persisted server-side. After authenticating in the
+        browser, the user can re-run the categorizer.
+
+        Args:
+            request: FastAPI request.
+            state_id: Reserved for future use.
+            limit: Maximum number of emails.
+            folder_label: Human-friendly source folder label or path.
+            dry_run: If True, do not move emails.
+
+        Returns:
+            Any: Redirect-like page back to home.
+        """
+
+        _ = state_id
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "limit": limit,
+                "folder_label": folder_label,
+                "dry_run": dry_run,
+            },
+            status_code=200,
+        )
 
     return app
 
