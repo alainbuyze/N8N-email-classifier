@@ -39,9 +39,32 @@ from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from .auth import DeviceCodeAuthRequired
+from .auth import DeviceCodeAuthRequired, GraphAuthenticator
 from .config import get_settings
 from .orchestrator import EmailOrchestrator
+
+
+# Shared authenticator to persist token cache across web requests
+_shared_authenticator: Optional[GraphAuthenticator] = None
+
+
+def get_shared_authenticator() -> GraphAuthenticator:
+    """Return a singleton GraphAuthenticator for the webapp.
+
+    This ensures the MSAL token cache stays in memory across requests,
+    so after device-code authentication, subsequent runs reuse the cached token
+    without prompting again.
+
+    Returns:
+        GraphAuthenticator: Shared authenticator instance.
+    """
+    global _shared_authenticator
+    if _shared_authenticator is None:
+        settings = get_settings()
+        # Force web mode for device-code prompts
+        settings.device_code_prompt_mode = "web"
+        _shared_authenticator = GraphAuthenticator(settings)
+    return _shared_authenticator
 
 
 def get_orchestrator() -> EmailOrchestrator:
@@ -54,10 +77,10 @@ def get_orchestrator() -> EmailOrchestrator:
     Returns:
         EmailOrchestrator: A new orchestrator instance.
     """
-
     settings = get_settings()
-    settings.device_code_prompt_mode = "web"
-    return EmailOrchestrator(settings=settings)
+    # Use shared authenticator to keep token cache in memory across requests
+    auth = get_shared_authenticator()
+    return EmailOrchestrator(settings=settings, auth=auth)
 
 
 def create_app() -> FastAPI:

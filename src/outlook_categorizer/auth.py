@@ -167,6 +167,8 @@ class GraphAuthenticator:
                     cache.deserialize(payload)
                     logger.debug("Loaded token cache from Azure Blob")
                     return cache
+                else:
+                    logger.debug("Azure Blob cache missing or invalid; falling back to file")
             except Exception as e:
                 logger.warning(f"Failed to load token cache from Azure Blob: {e}")
 
@@ -176,6 +178,8 @@ class GraphAuthenticator:
                 logger.debug("Loaded token cache from file")
             except Exception as e:
                 logger.warning(f"Failed to load token cache: {e}")
+        else:
+            logger.debug("No token cache file found; starting with empty cache")
         return cache
 
     def _save_token_cache(self, cache: msal.SerializableTokenCache) -> None:
@@ -349,6 +353,10 @@ class GraphAuthenticator:
                 logger.debug("Successfully acquired token from cache")
                 self._save_token_cache(app.token_cache)
                 return result["access_token"]
+            else:
+                logger.debug(f"Silent acquisition failed for account {selected.get('username')}: {result.get('error') if result else 'no result'}")
+        else:
+            logger.debug("No cached accounts found")
 
         # No cached token, use device code flow
         logger.debug("No cached token, starting device code authentication...")

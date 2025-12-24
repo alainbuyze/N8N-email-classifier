@@ -64,20 +64,23 @@ class EmailOrchestrator:
         folder_manager: Folder management.
     """
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Optional[Settings] = None, auth: Optional[GraphAuthenticator] = None) -> None:
         """
         Initialize orchestrator with all components.
 
         The orchestrator is constructed with a settings object to make testing
         easy. If settings are not provided, :func:`get_settings` is used.
+        An optional shared authenticator can be injected to persist token cache
+        across requests (e.g., in a web server).
 
         Args:
             settings: Application settings (loads from env if None).
+            auth: Optional GraphAuthenticator instance; if omitted, a new one is created.
         """
         self.settings = settings or get_settings()
 
         # Initialize components
-        self.auth = GraphAuthenticator(self.settings)
+        self.auth = auth or GraphAuthenticator(self.settings)
         self.email_client = EmailClient(self.settings, self.auth)
         self.categorizer = EmailCategorizer(self.settings)
         self.folder_manager = FolderManager(self.email_client)
