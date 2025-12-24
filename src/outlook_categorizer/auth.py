@@ -100,8 +100,11 @@ class GraphAuthenticator:
     Handles Microsoft Graph API authentication using MSAL.
 
     Supports two authentication modes:
-    1. Client credentials flow (application permissions) - for unattended scenarios
-    2. Device code flow (delegated permissions) - for interactive scenarios
+        1. Client credentials flow (application permissions) - for unattended scenarios
+        2. Device code flow (delegated permissions) - for interactive scenarios
+           (web deployments run the device-flow poller in a background thread so
+           the UI can display the instructions in-browser while authentication
+           continues server-side).
 
     Attributes:
         settings: Application settings containing Azure AD credentials.

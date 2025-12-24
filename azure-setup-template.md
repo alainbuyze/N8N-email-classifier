@@ -903,7 +903,7 @@ az containerapp logs show `
   --follow
 ```
 
-The token cache will be saved to Blob and reused across restarts.
+Once the app surfaces the device-code instructions in the web UI, open the Microsoft link, enter the code, and return to the app. The shared authenticator keeps the MSAL cache in memory and also writes it to Blob, so the prompt only appears the first time (or whenever the refresh token expires). The token cache will be saved to Blob and reused across restarts.
 
 ### Cost note
 

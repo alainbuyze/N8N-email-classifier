@@ -249,6 +249,18 @@ python -m uvicorn src.outlook_categorizer.webapp:app --reload
 # http://127.0.0.1:8000
 ```
 
+When running in delegated/device-code mode the FastAPI UI now surfaces the Microsoft
+Graph device-code instructions directly in the browser:
+
+1. Click **Run**.
+2. A page appears with the `https://www.microsoft.com/link` URL and device code.
+3. Complete the sign-in in a separate browser tab.
+4. Return to the UI and click **Run** again – thanks to the shared authenticator,
+   subsequent runs reuse the cached token instead of prompting every time.
+
+If you use client-credentials mode, you can optionally override the mailbox per run
+via the **Target mailbox (UPN)** field on the form.
+
 ### Docker
 
 ```bash

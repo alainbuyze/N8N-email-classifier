@@ -31,7 +31,7 @@ outlook_categorizer/
 
 ## Technology Stack
 - **Python 3.10+**
-- **msal** - Microsoft Authentication Library
+- **msal** - Microsoft Authentication Library (delegated + client-credentials, with web-friendly device-code flow)
 - **requests** - HTTP client for Graph API
 - **groq** - Groq LLM SDK
 - **markdownify** - HTML to Markdown conversion
@@ -54,6 +54,8 @@ Based on the N8N workflow, the following categories are supported:
 
 ## Data Flow
 1. Authenticate with Microsoft Graph API
+   - Web UI uses a shared `GraphAuthenticator` singleton so the MSAL cache stays warm between requests.
+   - Device-code prompts are rendered in the FastAPI UI; a background worker finishes the device flow and saves the cache (Blob/file).
 2. Fetch unprocessed emails (unflagged, uncategorized)
 3. For each email:
    a. Sanitize HTML body to clean text
